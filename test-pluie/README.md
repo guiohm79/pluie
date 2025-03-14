@@ -2,9 +2,10 @@
 
 Salut toi ! Bienvenue dans ce petit bijou de visualisation de pluie. C'est pas tous les jours qu'on s'amuse avec des gouttes d'eau, mais quand on s'y met, autant avoir un truc qui en jette !
 ## amelioration et bug
- - [ ] le script n'adapte pas le nombre de courbe en fonction du nombre d'année
- - [ ] lorsque les données sont affichées par jour, l'etiquette ne montre pas les jours
-
+ - [X] le script n'adapte pas le nombre de courbe en fonction du nombre d'année
+ - [X] lorsque les données sont affichées par jour, l'etiquette ne montre pas les jours
+ - [ ] l'etiquette affiche "NaN undifined"
+ - [ ] Il faut ajouter lors du survolle, en meme temps que les données, le cumule depuis le 1er janvier pour chaque année
 
 
 ## 🚀 C'est quoi ce bazar ?

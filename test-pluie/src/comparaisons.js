@@ -10,10 +10,25 @@ const defaultData = Array.from({ length: 12 }, (_, i) => {
   };
 });
 
+// Couleurs pour les années (on pourra en ajouter d'autres si besoin)
+const yearColors = {
+  '2019': '#F472B6', // Rose
+  '2020': '#A78BFA', // Violet
+  '2021': '#93C5FD', // Bleu clair
+  '2022': '#60A5FA', // Bleu
+  '2023': '#34D399', // Vert
+  '2024': '#FBBF24', // Jaune
+  '2025': '#F87171', // Rouge
+  '2026': '#6EE7B7', // Turquoise
+  '2027': '#FCD34D', // Or
+  '2028': '#9CA3AF', // Gris
+};
+
 const RainComparison = () => {
   // États pour les données et le fonctionnement du composant
   const [data, setData] = useState(defaultData);
-  const [yearlyTotals, setYearlyTotals] = useState({ '2022': 0, '2023': 0, '2024': 0, '2025': 0 });
+  const [yearlyTotals, setYearlyTotals] = useState({});
+  const [availableYears, setAvailableYears] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -74,12 +89,8 @@ const RainComparison = () => {
       // Structures pour stocker les données
       const dailyData = {};       // Données quotidiennes
       const monthlyData = {};     // Données mensuelles
-      const yearlyTotalsTemp = {  // Totaux annuels
-        '2022': 0, 
-        '2023': 0, 
-        '2024': 0, 
-        '2025': 0
-      };
+      const yearlyTotalsTemp = {}; // Totaux annuels (vide au départ)
+      const yearsFound = new Set(); // Ensemble des années trouvées
       
       // Parcourir les lignes de données
       for (let i = dataStartIndex; i < result.data.length; i++) {
@@ -102,6 +113,14 @@ const RainComparison = () => {
           const month = dateMatch[2]; // "01", "02", etc.
           const day = dateMatch[3];
           
+          // Ajouter l'année à notre ensemble d'années trouvées
+          yearsFound.add(year);
+          
+          // Initialiser le total annuel pour cette année si pas encore fait
+          if (!yearlyTotalsTemp[year]) {
+            yearlyTotalsTemp[year] = 0;
+          }
+          
           // Clé unique pour chaque jour
           const monthDay = `${month}/${day}`;
           
@@ -111,33 +130,38 @@ const RainComparison = () => {
           // Initialiser l'objet du jour s'il n'existe pas
           if (!dailyData[monthDay]) {
             dailyData[monthDay] = {
-              date: monthDay,
-              '2022': 0,
-              '2023': 0,
-              '2024': 0,
-              '2025': 0
+              date: monthDay
             };
+            // On n'ajoute pas de valeurs hardcodées, on le fera dynamiquement
           }
           
           // Initialiser l'objet du mois s'il n'existe pas
           if (!monthlyData[monthKey]) {
             monthlyData[monthKey] = {
-              name: getMonthName(month),
-              '2022': 0,
-              '2023': 0,
-              '2024': 0,
-              '2025': 0
+              name: getMonthName(month)
             };
+            // On n'ajoute pas de valeurs hardcodées, on le fera dynamiquement
           }
           
-          // Ajouter la valeur au jour correspondant
-          if (['2022', '2023', '2024', '2025'].includes(year)) {
-            dailyData[monthDay][year] = rainValue;
-            monthlyData[monthKey][year] += rainValue;
-            yearlyTotalsTemp[year] += rainValue;
+          // Ajouter la valeur au jour et au mois correspondants
+          dailyData[monthDay][year] = rainValue;
+          
+          // Initialiser ou incrémenter la valeur du mois pour cette année
+          if (!monthlyData[monthKey][year]) {
+            monthlyData[monthKey][year] = 0;
           }
+          monthlyData[monthKey][year] += rainValue;
+          
+          // Ajouter au total annuel
+          yearlyTotalsTemp[year] += rainValue;
         }
       }
+
+      // Convertir l'ensemble des années en tableau trié
+      const yearsArray = Array.from(yearsFound).sort();
+      setAvailableYears(yearsArray);
+      
+      console.log("Années détectées:", yearsArray);
 
       // Trier les données quotidiennes par date
       const sortedDailyData = Object.values(dailyData).sort((a, b) => {
@@ -207,6 +231,13 @@ const RainComparison = () => {
                         "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
     return monthNames[parseInt(monthNumber) - 1];
   };
+  
+  // Obtenir le nom court du mois
+  const getMonthShortName = (monthNumber) => {
+    const monthShortNames = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", 
+                             "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+    return monthShortNames[parseInt(monthNumber) - 1];
+  };
 
   // Gestion du glisser-déposer
   const handleDragEnter = (e) => {
@@ -271,18 +302,21 @@ const RainComparison = () => {
 
   // Obtenir la couleur pour chaque année
   const getYearColor = (year) => {
-    const colors = {
-      '2022': '#60A5FA', // Bleu
-      '2023': '#34D399', // Vert
-      '2024': '#FBBF24', // Jaune
-      '2025': '#F87171'  // Rouge
-    };
-    return colors[year] || '#9CA3AF'; // Gris par défaut
+    return yearColors[year] || '#9CA3AF'; // Gris par défaut si année non définie
   };
 
   // Tooltip personnalisé
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      // On extrait le mois et le jour à partir de la date (format "MM/JJ")
+      const [month, day] = label.split('/');
+      
+      // Obtenir le nom du mois
+      const monthName = getMonthName(month);
+      
+      // Date complète pour le tooltip
+      const completeDate = `${parseInt(day, 10)} ${monthName}`;
+      
       return (
         <div style={{ 
           backgroundColor: '#1F2937', 
@@ -290,17 +324,39 @@ const RainComparison = () => {
           border: '1px solid #374151',
           borderRadius: '6px', 
           boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-          color: '#E5E7EB' 
+          color: '#E5E7EB',
+          maxWidth: '280px' // Limiter la largeur pour éviter qu'il ne devienne trop large
         }}>
-          <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>{label}</p>
-          {payload.map((p) => (
-            <p key={p.dataKey} style={{ 
-              color: p.color, 
-              margin: '2px 0' 
-            }}>
-              {p.name}: {p.value.toFixed(1)} mm
-            </p>
-          ))}
+          <p style={{ 
+            fontWeight: 'bold', 
+            marginBottom: '8px', 
+            borderBottom: '1px solid #374151',
+            paddingBottom: '4px'
+          }}>
+            {completeDate}
+          </p>
+          <div style={{ 
+            maxHeight: '150px', 
+            overflowY: payload.length > 5 ? 'auto' : 'visible' // Ajouter un défilement si trop d'années
+          }}>
+            {payload
+              .filter(p => p.value > 0) // Ne montrer que les années avec des valeurs > 0
+              .sort((a, b) => b.value - a.value) // Trier par valeur décroissante
+              .map((p) => (
+                <p key={p.dataKey} style={{ 
+                  color: p.color, 
+                  margin: '2px 0',
+                  display: 'flex',
+                  justifyContent: 'space-between'
+                }}>
+                  <span>{p.name}:</span>
+                  <span style={{ fontWeight: 'bold', marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
+                </p>
+            ))}
+            {payload.filter(p => p.value > 0).length === 0 && (
+              <p style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pas de précipitations</p>
+            )}
+          </div>
         </div>
       );
     }
@@ -395,10 +451,11 @@ const RainComparison = () => {
         fontSize: '1.125rem',
         flexWrap: 'wrap'
       }}>
-        <span style={{ color: getYearColor('2022') }}>2022: {yearlyTotals['2022']}mm</span>
-        <span style={{ color: getYearColor('2023') }}>2023: {yearlyTotals['2023']}mm</span>
-        <span style={{ color: getYearColor('2024') }}>2024: {yearlyTotals['2024']}mm</span>
-        <span style={{ color: getYearColor('2025') }}>2025: {yearlyTotals['2025']}mm</span>
+        {Object.entries(yearlyTotals).map(([year, total]) => (
+          <span key={year} style={{ color: getYearColor(year) }}>
+            {year}: {total}mm
+          </span>
+        ))}
       </div>
       
       {/* Message d'erreur */}
@@ -443,9 +500,51 @@ const RainComparison = () => {
                   dataKey={displayMode === 'daily' ? 'date' : 'name'}
                   angle={-45}
                   textAnchor="end"
-                  height={80}
-                  interval={displayMode === 'daily' ? 14 : 0} // Montrer moins de labels en mode quotidien
-                  tick={{ fontSize: 12, fill: '#9CA3AF' }}
+                  height={90} // Augmenter la hauteur pour plus d'espace
+                  interval={displayMode === 'daily' ? 30 : 0} // Montrer une étiquette tous les ~30 jours
+                  tick={(props) => {
+                    const { x, y, payload } = props;
+                    
+                    // En mode quotidien, formatter l'étiquette
+                    if (displayMode === 'daily') {
+                      const [month, day] = payload.value.split('/');
+                      // Formatter pour montrer le jour et le mois court
+                      const label = `${parseInt(day, 10)} ${getMonthShortName(month)}`;
+                      
+                      return (
+                        <g transform={`translate(${x},${y})`}>
+                          <text 
+                            x={0} 
+                            y={0} 
+                            dy={16} 
+                            textAnchor="end" 
+                            fill="#9CA3AF" 
+                            transform="rotate(-45)"
+                            fontSize={12}
+                          >
+                            {label}
+                          </text>
+                        </g>
+                      );
+                    }
+                    
+                    // En mode mensuel, comportement standard
+                    return (
+                      <g transform={`translate(${x},${y})`}>
+                        <text 
+                          x={0} 
+                          y={0} 
+                          dy={16} 
+                          textAnchor="end" 
+                          fill="#9CA3AF" 
+                          transform="rotate(-45)"
+                          fontSize={12}
+                        >
+                          {payload.value}
+                        </text>
+                      </g>
+                    );
+                  }}
                   stroke="#4B5563"
                 />
                 <YAxis 
@@ -470,43 +569,19 @@ const RainComparison = () => {
                   }}
                 />
                 
-                {/* Lignes pour chaque année */}
-                <Line 
-                  type="monotone" 
-                  dataKey="2022" 
-                  stroke={getYearColor('2022')}
-                  name="2022"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 6 }}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="2023" 
-                  stroke={getYearColor('2023')}
-                  name="2023"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 6 }}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="2024" 
-                  stroke={getYearColor('2024')}
-                  name="2024"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 6 }}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="2025" 
-                  stroke={getYearColor('2025')}
-                  name="2025"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 6 }}
-                />
+                {/* Lignes pour chaque année disponible */}
+                {availableYears.map(year => (
+                  <Line 
+                    key={year}
+                    type="monotone" 
+                    dataKey={year} 
+                    stroke={getYearColor(year)}
+                    name={year}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 6 }}
+                  />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           </div>
