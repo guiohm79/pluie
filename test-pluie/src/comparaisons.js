@@ -9,7 +9,8 @@ const RainComparison = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await window.fs.readFile('pluviomètre gui_14_03_2025.csv', { encoding: 'utf8' });
+        const response = await fetch('/pluviomètre gui_14_03_2025.csv');
+        const text = await response.text();
         const result = Papa.parse(response, {
           header: true,
           delimiter: ';',
