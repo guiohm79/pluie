@@ -41,17 +41,17 @@ const RainComparison = () => {
                 '2023': 0,
                 '2024': 0,
                 '2025': 0,
-                '_cumul2022': 0,
-                '_cumul2023': 0,
-                '_cumul2024': 0,
-                '_cumul2025': 0
+                'cumul2022': 0,
+                'cumul2023': 0,
+                'cumul2024': 0,
+                'cumul2025': 0
               };
             }
             
             if (['2022', '2023', '2024', '2025'].includes(year)) {
               yearlyData[dayOfYear][year] = rain;
               runningTotals[year] += rain;
-              yearlyData[dayOfYear][`_cumul${year}`] = runningTotals[year];
+              yearlyData[dayOfYear][`cumul${year}`] = runningTotals[year];
               finalTotals[year] = Math.round(runningTotals[year] * 10) / 10;
             }
           }
@@ -84,7 +84,7 @@ const RainComparison = () => {
       
       const cumulValues = years.map(year => ({
         year,
-        value: payload.find(p => p.dataKey === `_cumul${year}`)?.value ?? 0,
+        value: payload.find(p => p.dataKey === `cumul${year}`)?.value ?? 0,
         color: getYearColor(year)
       }));
       
@@ -210,28 +210,28 @@ const RainComparison = () => {
             strokeWidth={2}
             activeDot={{ r: 6 }}
           />
-          {/* Lignes de cumul cachées avec un underscore pour ne pas apparaître dans la légende */}
+          {/* Lignes de cumul pour le tooltip */}
           <Line 
             type="monotone" 
-            dataKey="_cumul2022" 
+            dataKey="cumul2022" 
             stroke={getYearColor('2022')}
             hide={true}
           />
           <Line 
             type="monotone" 
-            dataKey="_cumul2023" 
+            dataKey="cumul2023" 
             stroke={getYearColor('2023')}
             hide={true}
           />
           <Line 
             type="monotone" 
-            dataKey="_cumul2024" 
+            dataKey="cumul2024" 
             stroke={getYearColor('2024')}
             hide={true}
           />
           <Line 
             type="monotone" 
-            dataKey="_cumul2025" 
+            dataKey="cumul2025" 
             stroke={getYearColor('2025')}
             hide={true}
           />
