@@ -8,7 +8,7 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Ma Station Météo Perso</h1>
+        <h1>Cumul de pluie ASCO</h1>
       </header>
       <main style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
         <RainComparison />
