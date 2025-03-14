@@ -11,7 +11,9 @@ const RainComparison = () => {
       try {
         const response = await fetch('/pluviomètre gui_14_03_2025.csv');
         const text = await response.text();
-        const result = Papa.parse(response, {
+        
+        // ICI C'EST LA CORRECTION: on parse "text" et non "response"
+        const result = Papa.parse(text, {
           header: true,
           delimiter: ';',
           skipEmptyLines: true
@@ -124,15 +126,44 @@ const RainComparison = () => {
     return colors[year];
   };
 
-  return (
-    <div className="w-full h-[500px] p-4 bg-gray-900 rounded-lg shadow text-gray-200">
-      <h2 className="text-2xl font-bold mb-2 text-center">Comparaison des précipitations</h2>
-      <div className="flex justify-center gap-6 mb-4 text-lg">
-        <span style={{color: getYearColor('2022')}}>2022: {yearlyTotals['2022']}mm</span>
-        <span style={{color: getYearColor('2023')}}>2023: {yearlyTotals['2023']}mm</span>
-        <span style={{color: getYearColor('2024')}}>2024: {yearlyTotals['2024']}mm</span>
-        <span style={{color: getYearColor('2025')}}>2025: {yearlyTotals['2025']}mm</span>
-      </div>
+// À remplacer dans ton fichier comparaisons.js
+
+// Remplace juste la partie "return" à la fin du composant:
+
+return (
+  <div className="graph-container" style={{ 
+    width: '100%', 
+    height: '500px', 
+    maxHeight: '500px',
+    padding: '16px', 
+    backgroundColor: '#1f2937', 
+    borderRadius: '8px', 
+    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)', 
+    color: '#e5e7eb',
+    marginBottom: '20px',
+    overflow: 'hidden'
+  }}>
+    <h2 style={{ 
+      fontSize: '1.5rem', 
+      fontWeight: 'bold', 
+      marginBottom: '8px', 
+      textAlign: 'center' 
+    }}>Comparaison des précipitations</h2>
+    
+    <div style={{ 
+      display: 'flex', 
+      justifyContent: 'center', 
+      gap: '24px', 
+      marginBottom: '16px',
+      fontSize: '1.125rem' 
+    }}>
+      <span style={{ color: getYearColor('2022') }}>2022: {yearlyTotals['2022']}mm</span>
+      <span style={{ color: getYearColor('2023') }}>2023: {yearlyTotals['2023']}mm</span>
+      <span style={{ color: getYearColor('2024') }}>2024: {yearlyTotals['2024']}mm</span>
+      <span style={{ color: getYearColor('2025') }}>2025: {yearlyTotals['2025']}mm</span>
+    </div>
+    
+    <div style={{ width: '100%', height: '350px', maxHeight: '350px', overflow: 'hidden' }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}
@@ -239,7 +270,7 @@ const RainComparison = () => {
         </LineChart>
       </ResponsiveContainer>
     </div>
-  );
-};
-
+  </div>
+);
+}
 export default RainComparison;
