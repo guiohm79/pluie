@@ -1,3 +1,5 @@
+// Solution complète pour corriger les bugs dans comparaisons.js
+
 import React, { useState, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import Papa from 'papaparse';
@@ -91,6 +93,7 @@ const RainComparison = () => {
       const monthlyData = {};     // Données mensuelles
       const yearlyTotalsTemp = {}; // Totaux annuels (vide au départ)
       const yearsFound = new Set(); // Ensemble des années trouvées
+      const yearCumulatives = {}; // Pour suivre les cumuls par année
       
       // Parcourir les lignes de données
       for (let i = dataStartIndex; i < result.data.length; i++) {
@@ -121,6 +124,11 @@ const RainComparison = () => {
             yearlyTotalsTemp[year] = 0;
           }
           
+          // Initialiser le cumul pour cette année si pas encore fait
+          if (!yearCumulatives[year]) {
+            yearCumulatives[year] = {};
+          }
+          
           // Clé unique pour chaque jour
           const monthDay = `${month}/${day}`;
           
@@ -132,7 +140,6 @@ const RainComparison = () => {
             dailyData[monthDay] = {
               date: monthDay
             };
-            // On n'ajoute pas de valeurs hardcodées, on le fera dynamiquement
           }
           
           // Initialiser l'objet du mois s'il n'existe pas
@@ -140,20 +147,22 @@ const RainComparison = () => {
             monthlyData[monthKey] = {
               name: getMonthName(month)
             };
-            // On n'ajoute pas de valeurs hardcodées, on le fera dynamiquement
           }
           
           // Ajouter la valeur au jour et au mois correspondants
           dailyData[monthDay][year] = rainValue;
+          
+          // Cumuler la valeur de pluie pour l'année
+          yearlyTotalsTemp[year] += rainValue;
+          
+          // Stocker le cumul à jour pour cette date
+          yearCumulatives[year][monthDay] = yearlyTotalsTemp[year];
           
           // Initialiser ou incrémenter la valeur du mois pour cette année
           if (!monthlyData[monthKey][year]) {
             monthlyData[monthKey][year] = 0;
           }
           monthlyData[monthKey][year] += rainValue;
-          
-          // Ajouter au total annuel
-          yearlyTotalsTemp[year] += rainValue;
         }
       }
 
@@ -162,6 +171,45 @@ const RainComparison = () => {
       setAvailableYears(yearsArray);
       
       console.log("Années détectées:", yearsArray);
+
+      // Ajouter les données cumulatives pour chaque jour
+      Object.keys(dailyData).forEach(day => {
+        Object.keys(yearCumulatives).forEach(year => {
+          if (yearCumulatives[year][day]) {
+            dailyData[day][`cumul${year}`] = yearCumulatives[year][day];
+          }
+        });
+      });
+
+      // De même pour les données mensuelles, ajouter les cumuls de fin de mois
+      const monthLastDays = {
+        '01': '01/31', '02': '02/28', '03': '03/31', '04': '04/30',
+        '05': '05/31', '06': '06/30', '07': '07/31', '08': '08/31',
+        '09': '09/30', '10': '10/31', '11': '11/30', '12': '12/31'
+      };
+
+      Object.keys(monthlyData).forEach(month => {
+        const lastDay = monthLastDays[month];
+        Object.keys(yearCumulatives).forEach(year => {
+          // Prendre le cumul du dernier jour du mois s'il existe
+          if (yearCumulatives[year][lastDay]) {
+            monthlyData[month][`cumul${year}`] = yearCumulatives[year][lastDay];
+          } else {
+            // Sinon, chercher le dernier jour disponible du mois
+            const daysInMonth = Object.keys(yearCumulatives[year])
+              .filter(day => day.startsWith(month + '/'))
+              .sort((a, b) => {
+                const dayA = parseInt(a.split('/')[1]);
+                const dayB = parseInt(b.split('/')[1]);
+                return dayB - dayA; // Trier par ordre décroissant pour avoir le dernier jour en premier
+              });
+            
+            if (daysInMonth.length > 0) {
+              monthlyData[month][`cumul${year}`] = yearCumulatives[year][daysInMonth[0]];
+            }
+          }
+        });
+      });
 
       // Trier les données quotidiennes par date
       const sortedDailyData = Object.values(dailyData).sort((a, b) => {
@@ -305,11 +353,106 @@ const RainComparison = () => {
     return yearColors[year] || '#9CA3AF'; // Gris par défaut si année non définie
   };
 
-  // Tooltip personnalisé
+  // Tooltip personnalisé - CORRIGÉ POUR AFFICHER LES CUMULS ET ÉVITER "NaN undefined"
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      // Vérifier si label est défini pour éviter "NaN undefined"
+      if (!label) return null;
+      
+      // En mode mensuel, on affiche directement le nom du mois
+      if (displayMode === 'monthly') {
+        return (
+          <div style={{ 
+            backgroundColor: '#1F2937', 
+            padding: '12px', 
+            border: '1px solid #374151',
+            borderRadius: '6px', 
+            boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+            color: '#E5E7EB',
+            maxWidth: '280px'
+          }}>
+            <p style={{ 
+              fontWeight: 'bold', 
+              marginBottom: '8px', 
+              borderBottom: '1px solid #374151',
+              paddingBottom: '4px'
+            }}>
+              {label}
+            </p>
+            <div style={{ 
+              maxHeight: '200px',
+              overflowY: payload.length > 5 ? 'auto' : 'visible'
+            }}>
+              {payload
+                .filter(p => p.value > 0 && !p.dataKey.startsWith('cumul'))
+                .sort((a, b) => b.value - a.value)
+                .map((p) => {
+                  // Trouver le cumul correspondant pour cette année
+                  const cumulKey = `cumul${p.dataKey}`;
+                  const cumulPayload = payload.find(item => item.dataKey === cumulKey);
+                  const cumulValue = cumulPayload ? cumulPayload.value : null;
+                  
+                  return (
+                    <div key={p.dataKey} style={{ 
+                      color: p.color, 
+                      margin: '4px 0',
+                      padding: '4px 0',
+                      borderBottom: '1px dotted #374151'
+                    }}>
+                      <div style={{ 
+                        display: 'flex',
+                        justifyContent: 'space-between'
+                      }}>
+                        <span>{p.dataKey}:</span>
+                        <span style={{ fontWeight: 'bold', marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
+                      </div>
+                      {/* Afficher le cumul s'il est disponible */}
+                      {cumulValue !== null && (
+                        <div style={{ 
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: '0.9em',
+                          marginTop: '2px',
+                          opacity: '0.8'
+                        }}>
+                          <span>Cumul {p.dataKey}:</span>
+                          <span>{cumulValue.toFixed(1)} mm</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              {payload.filter(p => p.value > 0 && !p.dataKey.startsWith('cumul')).length === 0 && (
+                <p style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pas de précipitations</p>
+              )}
+            </div>
+          </div>
+        );
+      }
+      
+      // Pour l'affichage quotidien
       // On extrait le mois et le jour à partir de la date (format "MM/JJ")
-      const [month, day] = label.split('/');
+      // Utiliser une regex pour être sûr d'extraire correctement les valeurs
+      const match = /(\d{2})\/(\d{2})/.exec(label);
+      
+      // Si le format n'est pas celui attendu, afficher le label tel quel
+      if (!match) {
+        return (
+          <div style={{ 
+            backgroundColor: '#1F2937', 
+            padding: '12px', 
+            border: '1px solid #374151',
+            borderRadius: '6px', 
+            boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+            color: '#E5E7EB'
+          }}>
+            <p>{label}</p>
+          </div>
+        );
+      }
+      
+      const month = match[1];
+      const day = match[2];
       
       // Obtenir le nom du mois
       const monthName = getMonthName(month);
@@ -325,7 +468,7 @@ const RainComparison = () => {
           borderRadius: '6px', 
           boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
           color: '#E5E7EB',
-          maxWidth: '280px' // Limiter la largeur pour éviter qu'il ne devienne trop large
+          maxWidth: '280px'
         }}>
           <p style={{ 
             fontWeight: 'bold', 
@@ -336,24 +479,49 @@ const RainComparison = () => {
             {completeDate}
           </p>
           <div style={{ 
-            maxHeight: '150px', 
-            overflowY: payload.length > 5 ? 'auto' : 'visible' // Ajouter un défilement si trop d'années
+            maxHeight: '200px',
+            overflowY: payload.length > 5 ? 'auto' : 'visible'
           }}>
             {payload
-              .filter(p => p.value > 0) // Ne montrer que les années avec des valeurs > 0
-              .sort((a, b) => b.value - a.value) // Trier par valeur décroissante
-              .map((p) => (
-                <p key={p.dataKey} style={{ 
-                  color: p.color, 
-                  margin: '2px 0',
-                  display: 'flex',
-                  justifyContent: 'space-between'
-                }}>
-                  <span>{p.name}:</span>
-                  <span style={{ fontWeight: 'bold', marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
-                </p>
-            ))}
-            {payload.filter(p => p.value > 0).length === 0 && (
+              .filter(p => p.value > 0 && !p.dataKey.startsWith('cumul'))
+              .sort((a, b) => b.value - a.value)
+              .map((p) => {
+                // Trouver le cumul correspondant pour cette année
+                const cumulKey = `cumul${p.dataKey}`;
+                const cumulPayload = payload.find(item => item.dataKey === cumulKey);
+                const cumulValue = cumulPayload ? cumulPayload.value : null;
+                
+                return (
+                  <div key={p.dataKey} style={{ 
+                    color: p.color, 
+                    margin: '4px 0',
+                    padding: '4px 0',
+                    borderBottom: '1px dotted #374151'
+                  }}>
+                    <div style={{ 
+                      display: 'flex',
+                      justifyContent: 'space-between'
+                    }}>
+                      <span>{p.dataKey}:</span>
+                      <span style={{ fontWeight: 'bold', marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
+                    </div>
+                    {/* Afficher le cumul s'il est disponible */}
+                    {cumulValue !== null && (
+                      <div style={{ 
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        fontSize: '0.9em',
+                        marginTop: '2px',
+                        opacity: '0.8'
+                      }}>
+                        <span>Cumul {p.dataKey}:</span>
+                        <span>{cumulValue.toFixed(1)} mm</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            {payload.filter(p => p.value > 0 && !p.dataKey.startsWith('cumul')).length === 0 && (
               <p style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pas de précipitations</p>
             )}
           </div>
@@ -569,7 +737,7 @@ const RainComparison = () => {
                   }}
                 />
                 
-                {/* Lignes pour chaque année disponible */}
+                {/* Lignes pour chaque année disponible - n'afficher que les vraies valeurs, pas les cumuls */}
                 {availableYears.map(year => (
                   <Line 
                     key={year}
@@ -580,6 +748,18 @@ const RainComparison = () => {
                     strokeWidth={2}
                     dot={false}
                     activeDot={{ r: 6 }}
+                  />
+                ))}
+                
+                {/* On ajoute les lignes de cumul mais on les cache pour qu'elles soient disponibles dans le tooltip */}
+                {availableYears.map(year => (
+                  <Line 
+                    key={`cumul${year}`}
+                    type="monotone" 
+                    dataKey={`cumul${year}`}
+                    stroke="transparent"
+                    name={`Cumul ${year}`}
+                    hide={true} // Caché visuellement mais disponible pour le tooltip
                   />
                 ))}
               </LineChart>

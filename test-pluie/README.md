@@ -4,8 +4,9 @@ Salut toi ! Bienvenue dans ce petit bijou de visualisation de pluie. C'est pas t
 ## amelioration et bug
  - [X] le script n'adapte pas le nombre de courbe en fonction du nombre d'année
  - [X] lorsque les données sont affichées par jour, l'etiquette ne montre pas les jours
- - [ ] l'etiquette affiche "NaN undifined"
+ - [X] l'etiquette affiche "NaN undifined"
  - [ ] Il faut ajouter lors du survolle du graphique, en meme temps que les données, le cumule depuis le 1er janvier pour chaque année
+ - [ ] il faut ajouter un mode sur le graphique qui montre le cumul annuel de pluie depuis le 1er janvier pour chaque année
 
 
 ## 🚀 C'est quoi ce bazar ?
