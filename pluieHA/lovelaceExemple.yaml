@@ -1,0 +1,48 @@
+# Configuration du capteur pluviomètre
+# À ajouter à ton fichier configuration.yaml
+
+# Option 1 : Si tu as un capteur physique connecté 
+# via MQTT, Zigbee, Z-Wave, etc.
+sensor:
+  # Exemple pour un capteur qui envoie des données via MQTT
+  - platform: mqtt
+    name: "Pluviomètre GUI"
+    state_topic: "weather/pluviometre/valeur"
+    unit_of_measurement: "mm"
+    value_template: "{{ value | float }}"
+    device_class: precipitation
+    state_class: measurement
+
+# Option 2 : Si tu veux lire ton fichier CSV directement
+# via un capteur personnalisé
+shell_command:
+  parse_rainfall_csv: "python3 /config/scripts/parse_rainfall_csv.py"
+
+sensor:
+  - platform: command_line
+    name: "Pluviomètre GUI"
+    command: "python3 /config/scripts/get_latest_rainfall.py"
+    unit_of_measurement: "mm"
+    value_template: "{{ value | float }}"
+    scan_interval: 3600  # Une fois par heure
+    device_class: precipitation
+    state_class: measurement
+
+# Option 3 : Si tu utilises une station météo comme Netatmo
+# qui a une API intégrée
+netatmo:
+  client_id: !secret netatmo_client_id
+  client_secret: !secret netatmo_client_secret
+
+# Option 4 : Importer directement ton historique CSV
+# via un sensor de type file et l'automatisation qui va avec
+automation:
+  - alias: "Import du fichier CSV de pluie"
+    trigger:
+      platform: time_pattern
+      hours: "/12"  # Toutes les 12 heures
+    action:
+      service: python_script.import_rainfall_csv
+      data:
+        file_path: "/config/www/pluviometre_gui_15_03_2025.csv"
+        entity_id: sensor.pluviometre_gui
