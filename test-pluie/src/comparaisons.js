@@ -48,16 +48,28 @@ const RainComparison = () => {
   useEffect(() => {
     const loadDefaultData = async () => {
       try {
-        const response = await fetch('/pluviomètre gui_14_03_2025.csv');
+        const response = await fetch('/pluviomètre_gui_15_03_2025.csv');
         if (!response.ok) {
           console.warn("Fichier CSV par défaut non trouvé, utilisation des données d'exemple");
           return;
         }
         const text = await response.text();
-        setFileName('pluviomètre gui_14_03_2025.csv');
+        setFileName('pluviomètre_gui_15_03_2025.csv');
         processCSV(text);
       } catch (error) {
-        console.warn("Erreur lors du chargement du fichier par défaut, utilisation des données d'exemple:", error);
+        try {
+          // Essayer avec un nom de fichier différent si le premier échoue
+          const response = await fetch('/pluviomètre gui_15_03_2025.csv');
+          if (!response.ok) {
+            console.warn("Fichier CSV par défaut non trouvé, utilisation des données d'exemple");
+            return;
+          }
+          const text = await response.text();
+          setFileName('pluviomètre gui_15_03_2025.csv');
+          processCSV(text);
+        } catch (secondError) {
+          console.warn("Erreur lors du chargement du fichier par défaut, utilisation des données d'exemple:", secondError);
+        }
       }
     };
 
@@ -74,24 +86,43 @@ const RainComparison = () => {
       const result = Papa.parse(csvText, { delimiter: ';' });
       console.log("Résultat du parsing CSV:", result);
       
-      if (!result.data || result.data.length < 5) {
+      if (!result.data || result.data.length < 2) {
         throw new Error("Le fichier CSV ne contient pas assez de données");
       }
 
-      // On cherche l'indice de la ligne qui contient "Timestamp"
-      let dataStartIndex = -1;
-      for (let i = 0; i < result.data.length; i++) {
-        if (result.data[i].length > 0 && result.data[i][0] === "Timestamp") {
-          dataStartIndex = i + 1; // Les données commencent à la ligne suivante
-          break;
+      // Analyser la structure du fichier
+      console.log("Échantillon des premières lignes:", result.data.slice(0, 5));
+
+      // On cherche l'indice de la ligne qui contient "Timestamp" ou on prend la première ligne comme en-tête
+      let dataStartIndex = 1; // Par défaut, on considère que la première ligne est l'en-tête
+      const headerRow = result.data[0];
+      
+      // Si l'en-tête est identifiable, on l'utilise (différents formats possibles)
+      if (headerRow && headerRow.some(cell => cell && (
+        cell === "Timestamp" || 
+        cell === "Date" || 
+        cell.includes("Time") || 
+        cell.includes("Date")
+      ))) {
+        dataStartIndex = 1; // La ligne suivante contient les données
+        console.log("En-tête trouvé à la ligne 0");
+      } else {
+        // Recherche plus approfondie dans les premières lignes
+        for (let i = 0; i < Math.min(10, result.data.length); i++) {
+          if (result.data[i] && result.data[i].some(cell => cell && (
+            cell === "Timestamp" || 
+            cell === "Date" || 
+            cell.includes("Time") || 
+            cell.includes("Date")
+          ))) {
+            dataStartIndex = i + 1;
+            console.log("En-tête trouvé à la ligne", i);
+            break;
+          }
         }
       }
       
       console.log("Début des données à l'index:", dataStartIndex);
-      
-      if (dataStartIndex === -1) {
-        throw new Error("Format de fichier non reconnu - Impossible de trouver la ligne Timestamp");
-      }
 
       // Structures pour stocker les données
       const dailyData = {};       // Données quotidiennes
@@ -105,19 +136,50 @@ const RainComparison = () => {
       // Parcourir les lignes de données
       for (let i = dataStartIndex; i < result.data.length; i++) {
         const row = result.data[i];
-        if (row.length < 3) continue; // Ignorer les lignes trop courtes
+        if (!row || row.length < 2) continue; // Ignorer les lignes trop courtes
         
-        // Format attendu: [timestamp, date_string, rain_value]
-        const dateStr = row[1] ? row[1].replace(/"/g, '') : '';
+        // Essayer de trouver la date et la valeur de pluie
+        let dateStr = '';
         let rainValue = 0;
         
-        // Extraire la valeur de pluie
-        if (row[2] !== undefined) {
-          rainValue = parseFloat(row[2].replace(',', '.')) || 0;
+        // Essayer différentes colonnes pour trouver la date
+        if (row[1] && typeof row[1] === 'string' && (row[1].includes('/') || row[1].includes('-'))) {
+          dateStr = row[1].replace(/"/g, '');
+        } else if (row[0] && typeof row[0] === 'string' && (row[0].includes('/') || row[0].includes('-'))) {
+          dateStr = row[0].replace(/"/g, '');
         }
         
-        // Extraire l'année, le mois et le jour de la chaîne de date
-        const dateMatch = /(\d{4})\/(\d{2})\/(\d{2})/.exec(dateStr);
+        // Chercher une valeur numérique pour la pluie (parcourir toutes les colonnes)
+        for (let j = 0; j < row.length; j++) {
+          if (row[j] !== undefined && row[j] !== '') {
+            // Nettoyage de la valeur (remplacer virgule par point et retirer les espaces)
+            const cleanValue = row[j].toString().replace(',', '.').trim();
+            const possibleValue = parseFloat(cleanValue);
+            
+            // Vérifier que c'est un nombre et qu'il est raisonnable (entre 0 et 500 mm)
+            if (!isNaN(possibleValue) && possibleValue >= 0 && possibleValue <= 500) {
+              rainValue = possibleValue;
+              break; // On prend la première valeur numérique raisonnable trouvée
+            }
+          }
+        }
+        
+        // Format de date possible: YYYY/MM/DD ou DD/MM/YYYY ou MM/DD/YYYY
+        let dateMatch = /(\d{4})\/(\d{2})\/(\d{2})/.exec(dateStr);  // Format YYYY/MM/DD
+        if (!dateMatch) dateMatch = /(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);  // Format YYYY-MM-DD
+        
+        if (!dateMatch) {
+          // Format DD/MM/YYYY ou MM/DD/YYYY
+          dateMatch = /(\d{2})\/(\d{2})\/(\d{4})/.exec(dateStr) || /(\d{2})-(\d{2})-(\d{4})/.exec(dateStr);
+          if (dateMatch) {
+            // On suppose que c'est JJ/MM/AAAA plutôt que MM/JJ/AAAA (format européen)
+            const day = dateMatch[1];
+            const month = dateMatch[2];
+            const year = dateMatch[3];
+            dateStr = `${year}/${month}/${day}`;
+            dateMatch = [dateStr, year, month, day];
+          }
+        }
         if (dateMatch) {
           const year = dateMatch[1];
           const month = dateMatch[2]; // "01", "02", etc.
@@ -201,7 +263,9 @@ const RainComparison = () => {
           
           // Calculer d'abord tous les cumuls pour les jours où on a des données
           cumulativeData[year].forEach(entry => {
-            runningTotal += entry.rainValue;
+            // Vérification de sécurité pour les valeurs aberrantes
+            const rainToAdd = entry.rainValue > 300 ? 0 : entry.rainValue;
+            runningTotal += rainToAdd;
             // Stocker le cumul pour ce jour
             yearCumulatives[entry.monthDay] = runningTotal;
           });
@@ -234,9 +298,16 @@ const RainComparison = () => {
         return (aMonth * 100 + aDay) - (bMonth * 100 + bDay);
       });
       
-      // Arrondir les totaux annuels
+      // Arrondir les totaux annuels et éliminer les valeurs aberrantes
       Object.keys(yearlyTotalsTemp).forEach(year => {
-        yearlyTotalsTemp[year] = Math.round(yearlyTotalsTemp[year] * 10) / 10;
+        // Si le total est au-dessus de 5000mm (valeur exceptionnelle pour la France),
+        // c'est probablement une erreur de format ou de parsing
+        if (yearlyTotalsTemp[year] > 5000) {
+          yearlyTotalsTemp[year] = 0; 
+          console.warn(`Valeur aberrante détectée pour l'année ${year}: ${yearlyTotalsTemp[year]} mm`);
+        } else {
+          yearlyTotalsTemp[year] = Math.round(yearlyTotalsTemp[year] * 10) / 10;
+        }
       });
       
       console.log("Données quotidiennes:", sortedDailyData.slice(0, 5), "...");
@@ -905,7 +976,7 @@ const RainComparison = () => {
                   }}
                   stroke="#4B5563"
                 />
-                <YAxis 
+        <YAxis 
                   domain={[0, 'auto']}
                   label={{ 
                     value: displayMode === 'cumulative' ? 'Cumul de précipitations (mm)' : 'Précipitations (mm)', 
@@ -916,6 +987,9 @@ const RainComparison = () => {
                   }} 
                   tick={{ fontSize: 12, fill: '#9CA3AF' }}
                   stroke="#4B5563"
+                  // Limitation pour éviter les échelles trop grandes
+                  allowDataOverflow={true}
+                  tickCount={10}
                 />
                 <Tooltip content={<CustomTooltip />} />
                 
