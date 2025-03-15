@@ -5,8 +5,7 @@ Salut toi ! Bienvenue dans ce petit bijou de visualisation de pluie. C'est pas t
  - [X] le script n'adapte pas le nombre de courbe en fonction du nombre d'année
  - [X] lorsque les données sont affichées par jour, l'etiquette ne montre pas les jours
  - [X] l'etiquette affiche "NaN undifined"
- - [ ] Il faut ajouter lors du survolle du graphique, en meme temps que les données, le cumule depuis le 1er janvier pour chaque année
- - [ ] il faut ajouter un mode sur le graphique qui montre le cumul annuel de pluie depuis le 1er janvier pour chaque année
+ - [X] il faut ajouter un mode sur le graphique qui montre le cumul annuel de pluie depuis le 1er janvier pour chaque année
 
 
 ## 🚀 C'est quoi ce bazar ?
@@ -27,13 +26,7 @@ C'est une appli React toute simple qui te permet de visualiser tes données de p
 
 2. **Glisser-déposer** : Si t'as d'autres fichiers de données, tu peux les glisser-déposer dans la zone prévue.
 
-3. **Changer de vue** : T'as un bouton pour basculer entre l'affichage par jour et l'affichage par mois. 
 
-4. **Les couleurs** : Chaque année a sa couleur :
-   - 2022 : Bleu 
-   - 2023 : Vert
-   - 2024 : Jaune
-   - 2025 : Rouge
    
 
 ## 📊 Format du fichier CSV

@@ -1,7 +1,5 @@
-// Solution mise à jour pour ajouter l'affichage des cumuls
-
 import React, { useState, useEffect, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from 'recharts';
 import Papa from 'papaparse';
 
 // Données pour le graphique par défaut (un exemple simple)
@@ -35,7 +33,13 @@ const RainComparison = () => {
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState(null);
-  const [displayMode, setDisplayMode] = useState('daily'); // 'daily', 'monthly' ou 'cumulative'
+  const [displayMode, setDisplayMode] = useState('daily'); // 'daily' ou 'cumulative'
+
+  // États pour le zoom du graphique (simplifié)
+  const [refAreaLeft, setRefAreaLeft] = useState('');
+  const [refAreaRight, setRefAreaRight] = useState('');
+  const [isZooming, setIsZooming] = useState(false);
+  const [zoomDomain, setZoomDomain] = useState({ start: 0, end: 365 });
   
   const dropZoneRef = useRef(null);
 
@@ -93,7 +97,9 @@ const RainComparison = () => {
       const monthlyData = {};     // Données mensuelles
       const yearlyTotalsTemp = {}; // Totaux annuels (vide au départ)
       const yearsFound = new Set(); // Ensemble des années trouvées
-      const yearCumulatives = {}; // Pour suivre les cumuls par année
+      
+      // Structure pour les cumuls annuels (une entrée par date et par année)
+      const cumulativeData = {};
       
       // Parcourir les lignes de données
       for (let i = dataStartIndex; i < result.data.length; i++) {
@@ -124,13 +130,11 @@ const RainComparison = () => {
             yearlyTotalsTemp[year] = 0;
           }
           
-          // Initialiser le cumul pour cette année si pas encore fait
-          if (!yearCumulatives[year]) {
-            yearCumulatives[year] = {};
-          }
-          
           // Clé unique pour chaque jour
           const monthDay = `${month}/${day}`;
+          
+          // Date complète pour trier
+          const fullDate = `${year}-${month}-${day}`;
           
           // Clé pour regrouper par mois
           const monthKey = `${month}`;
@@ -155,8 +159,18 @@ const RainComparison = () => {
           // Cumuler la valeur de pluie pour l'année
           yearlyTotalsTemp[year] += rainValue;
           
-          // Stocker le cumul à jour pour cette date
-          yearCumulatives[year][monthDay] = yearlyTotalsTemp[year];
+          // Pour calculer correctement les cumuls par année
+          if (!cumulativeData[year]) {
+            cumulativeData[year] = [];
+          }
+          
+          // Ajouter cette entrée au tableau pour cette année
+          cumulativeData[year].push({
+            fullDate,
+            monthDay,
+            rainValue,
+            timestamp: parseInt(row[0], 10) // Pour trier chronologiquement
+          });
           
           // Initialiser ou incrémenter la valeur du mois pour cette année
           if (!monthlyData[monthKey][year]) {
@@ -172,48 +186,20 @@ const RainComparison = () => {
       
       console.log("Années détectées:", yearsArray);
 
-      // Ajouter les données cumulatives pour chaque jour
-      Object.keys(dailyData).forEach(day => {
-        Object.keys(yearCumulatives).forEach(year => {
-          if (yearCumulatives[year][day]) {
-            // S'assurer que la valeur est un nombre valide
-            const cumulValue = yearCumulatives[year][day];
-            dailyData[day][`cumul${year}`] = isNaN(cumulValue) ? 0 : cumulValue;
-          } else {
-            // Valeur par défaut à 0 pour éviter les NaN
-            dailyData[day][`cumul${year}`] = 0;
-          }
-        });
-      });
-
-      // De même pour les données mensuelles, ajouter les cumuls de fin de mois
-      const monthLastDays = {
-        '01': '01/31', '02': '02/28', '03': '03/31', '04': '04/30',
-        '05': '05/31', '06': '06/30', '07': '07/31', '08': '08/31',
-        '09': '09/30', '10': '10/31', '11': '11/30', '12': '12/31'
-      };
-
-      Object.keys(monthlyData).forEach(month => {
-        const lastDay = monthLastDays[month];
-        Object.keys(yearCumulatives).forEach(year => {
-          // Prendre le cumul du dernier jour du mois s'il existe
-          if (yearCumulatives[year][lastDay]) {
-            monthlyData[month][`cumul${year}`] = yearCumulatives[year][lastDay];
-          } else {
-            // Sinon, chercher le dernier jour disponible du mois
-            const daysInMonth = Object.keys(yearCumulatives[year])
-              .filter(day => day.startsWith(month + '/'))
-              .sort((a, b) => {
-                const dayA = parseInt(a.split('/')[1]);
-                const dayB = parseInt(b.split('/')[1]);
-                return dayB - dayA; // Trier par ordre décroissant pour avoir le dernier jour en premier
-              });
-            
-            if (daysInMonth.length > 0) {
-              monthlyData[month][`cumul${year}`] = yearCumulatives[year][daysInMonth[0]];
-            }
-          }
-        });
+      // Pour chaque année, calculer correctement les cumuls
+      yearsArray.forEach(year => {
+        // D'abord, trier les données par date
+        if (cumulativeData[year]) {
+          cumulativeData[year].sort((a, b) => a.timestamp - b.timestamp);
+          
+          // Calculer le cumul progressif
+          let runningTotal = 0;
+          cumulativeData[year].forEach(entry => {
+            runningTotal += entry.rainValue;
+            // Ajouter le cumul au jour correspondant
+            dailyData[entry.monthDay][`cumul${year}`] = runningTotal;
+          });
+        }
       });
 
       // Trier les données quotidiennes par date
@@ -223,31 +209,16 @@ const RainComparison = () => {
         return (aMonth * 100 + aDay) - (bMonth * 100 + bDay);
       });
       
-      // Trier les données mensuelles
-      const sortedMonthlyData = Object.values(monthlyData).sort((a, b) => {
-        const monthOrder = {
-          'Janvier': 1, 'Février': 2, 'Mars': 3, 'Avril': 4, 'Mai': 5, 'Juin': 6,
-          'Juillet': 7, 'Août': 8, 'Septembre': 9, 'Octobre': 10, 'Novembre': 11, 'Décembre': 12
-        };
-        return monthOrder[a.name] - monthOrder[b.name];
-      });
-
       // Arrondir les totaux annuels
       Object.keys(yearlyTotalsTemp).forEach(year => {
         yearlyTotalsTemp[year] = Math.round(yearlyTotalsTemp[year] * 10) / 10;
       });
       
       console.log("Données quotidiennes:", sortedDailyData.slice(0, 5), "...");
-      console.log("Données mensuelles:", sortedMonthlyData);
       console.log("Totaux annuels:", yearlyTotalsTemp);
 
       // Définir les données en fonction du mode d'affichage
-      if (displayMode === 'daily') {
-        setData(sortedDailyData);
-      } else if (displayMode === 'monthly') {
-        setData(sortedMonthlyData);
-      } else if (displayMode === 'cumulative') {
-        // En mode cumulatif, on utilise les mêmes données mais on affichera différemment
+      if (displayMode === 'daily' || displayMode === 'cumulative') {
         setData(sortedDailyData);
       }
       
@@ -263,16 +234,8 @@ const RainComparison = () => {
 
   // Basculer entre les modes d'affichage
   const toggleDisplayMode = () => {
-    // Rotation entre les trois modes
-    let newMode;
-    if (displayMode === 'daily') {
-      newMode = 'monthly';
-    } else if (displayMode === 'monthly') {
-      newMode = 'cumulative';
-    } else {
-      newMode = 'daily';
-    }
-    
+    // Rotation entre les deux modes seulement
+    const newMode = displayMode === 'daily' ? 'cumulative' : 'daily';
     setDisplayMode(newMode);
     
     // Si on a des données CSV chargées, on retraite le fichier
@@ -285,8 +248,6 @@ const RainComparison = () => {
   const getButtonLabel = () => {
     switch (displayMode) {
       case 'daily':
-        return 'Afficher par mois';
-      case 'monthly':
         return 'Afficher les cumuls';
       case 'cumulative':
         return 'Afficher par jour';
@@ -310,7 +271,68 @@ const RainComparison = () => {
     }
   };
 
-  // Obtenir le nom du mois à partir de son numéro
+  // Fonctions pour le zoom (version simplifiée et plus ergonomique)
+  const handleMouseDown = (e) => {
+    if (displayMode === 'daily' && e && e.activeLabel) {
+      setRefAreaLeft(e.activeLabel);
+      setIsZooming(true);
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (isZooming && e && e.activeLabel) {
+      setRefAreaRight(e.activeLabel);
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (!isZooming) return;
+
+    // Si on n'a pas de zone valide, on sort
+    if (!refAreaLeft || !refAreaRight) {
+      setIsZooming(false);
+      setRefAreaLeft('');
+      setRefAreaRight('');
+      return;
+    }
+
+    // On cherche les indices dans le tableau de données
+    let idxLeft = data.findIndex(item => item.date === refAreaLeft);
+    let idxRight = data.findIndex(item => item.date === refAreaRight);
+    
+    // Si on a des indices invalides, on sort
+    if (idxLeft < 0 || idxRight < 0) {
+      setIsZooming(false);
+      setRefAreaLeft('');
+      setRefAreaRight('');
+      return;
+    }
+
+    // On s'assure que left < right
+    if (idxLeft > idxRight) {
+      [idxLeft, idxRight] = [idxRight, idxLeft];
+    }
+
+    // On définit la zone de zoom
+    setZoomDomain({ start: idxLeft, end: idxRight });
+    
+    // On nettoie les variables de sélection
+    setIsZooming(false);
+    setRefAreaLeft('');
+    setRefAreaRight('');
+  };
+
+  // Réinitialiser le zoom
+  const resetZoom = () => {
+    setZoomDomain({ start: 0, end: 365 });
+  };
+  
+  // Vérifier si on a zoomé
+  const isZoomed = () => {
+    return zoomDomain.start > 0 || zoomDomain.end < 365;
+  };
+
+  // Fonctions pour gérer le fichier CSV et l'affichage
   const getMonthName = (monthNumber) => {
     const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", 
                         "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
@@ -729,17 +751,43 @@ const RainComparison = () => {
           <div className="graph-container" style={{ 
             width: '100%', 
             height: '500px',
-            overflow: 'visible'
+            overflow: 'visible',
+            position: 'relative'
           }}>
+            {/* Bouton réinitialiser zoom (simple) */}
+            {displayMode === 'daily' && isZoomed() && (
+              <button
+                onClick={resetZoom}
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  zIndex: 100,
+                  backgroundColor: '#4B5563',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                Réinitialiser zoom
+              </button>
+            )}
+            
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
-                data={data}
+                data={displayMode === 'daily' ? data.slice(zoomDomain.start, zoomDomain.end + 1) : data}
                 margin={{
                   top: 20,
                   right: 30,
                   left: 20,
                   bottom: 30,
                 }}
+                onMouseDown={displayMode === 'daily' ? handleMouseDown : undefined}
+                onMouseMove={displayMode === 'daily' ? handleMouseMove : undefined}
+                onMouseUp={displayMode === 'daily' ? handleMouseUp : undefined}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis 
@@ -814,14 +862,6 @@ const RainComparison = () => {
                   stroke="#4B5563"
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend 
-                  verticalAlign="top" 
-                  height={36}
-                  wrapperStyle={{
-                    paddingBottom: '20px',
-                    fontSize: '14px'
-                  }}
-                />
                 
                 {/* Lignes pour chaque année disponible */}
                 {availableYears.map(year => (
