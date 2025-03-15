@@ -48,28 +48,46 @@ const RainComparison = () => {
   useEffect(() => {
     const loadDefaultData = async () => {
       try {
-        const response = await fetch('/pluviomètre_gui_15_03_2025.csv');
-        if (!response.ok) {
-          console.warn("Fichier CSV par défaut non trouvé, utilisation des données d'exemple");
-          return;
-        }
-        const text = await response.text();
-        setFileName('pluviomètre_gui_15_03_2025.csv');
-        processCSV(text);
-      } catch (error) {
-        try {
-          // Essayer avec un nom de fichier différent si le premier échoue
-          const response = await fetch('/pluviomètre gui_15_03_2025.csv');
-          if (!response.ok) {
-            console.warn("Fichier CSV par défaut non trouvé, utilisation des données d'exemple");
-            return;
+        // On va d'abord essayer de lister les fichiers CSV disponibles dans le dossier public
+        // Comme on ne peut pas lister directement les fichiers dans le dossier public depuis le navigateur,
+        // on va essayer de charger le premier fichier CSV trouvé dans une liste prédéfinie
+
+        // Liste des noms de fichiers CSV courants à essayer
+        const possibleCsvFiles = [
+          '/pluviomètre gui_15_03_2025.csv',                        // Essayer un nom simple et générique d'abord
+          '/pluviomètre_gui_15_03_2025.csv',  // Essayer ton fichier spécifique
+          '/data.csv',  // Variation avec espace
+          '/pluviometre.csv',                 // Sans accents
+          '/rainfall.csv',                    // En anglais
+          '/pluie.csv',                       // Simple en français
+        ];
+
+        // On essaie chaque fichier jusqu'à en trouver un qui fonctionne
+        for (const csvFile of possibleCsvFiles) {
+          try {
+            const response = await fetch(csvFile);
+            if (response.ok) {
+              const text = await response.text();
+              setFileName(csvFile.replace('/', '')); // Enlever le slash initial pour le nom de fichier
+              
+              // Ajout d'un délai pour s'assurer que le composant est bien monté avant de traiter les données
+              setTimeout(() => {
+                processCSV(text);
+                console.log(`Fichier CSV chargé avec succès: ${csvFile}`);
+              }, 300);
+              
+              return; // On a trouvé un fichier, on sort de la fonction
+            }
+          } catch (fileError) {
+            // On ignore les erreurs individuelles et on continue avec le fichier suivant
+            console.log(`Impossible de charger ${csvFile}:`, fileError);
           }
-          const text = await response.text();
-          setFileName('pluviomètre gui_15_03_2025.csv');
-          processCSV(text);
-        } catch (secondError) {
-          console.warn("Erreur lors du chargement du fichier par défaut, utilisation des données d'exemple:", secondError);
         }
+
+        // Si on arrive ici, c'est qu'aucun fichier n'a été trouvé
+        console.warn("Aucun fichier CSV trouvé dans le dossier public, utilisation des données d'exemple");
+      } catch (error) {
+        console.warn("Erreur lors du chargement des fichiers CSV, utilisation des données d'exemple:", error);
       }
     };
 
