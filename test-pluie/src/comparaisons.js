@@ -34,6 +34,7 @@ const RainComparison = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState(null);
   const [displayMode, setDisplayMode] = useState('daily'); // 'daily' ou 'cumulative'
+  const [showDropZone, setShowDropZone] = useState(false); // Nouvel état pour contrôler l'affichage de la zone
 
   // États pour le zoom du graphique (simplifié)
   const [refAreaLeft, setRefAreaLeft] = useState('');
@@ -388,6 +389,9 @@ const RainComparison = () => {
       };
       reader.readAsText(file);
     }
+    
+    // Masquer la zone après l'importation d'un fichier
+    setShowDropZone(false);
   };
 
   // Gestion du clic pour sélectionner un fichier
@@ -404,7 +408,15 @@ const RainComparison = () => {
         setError("Erreur lors de la lecture du fichier");
       };
       reader.readAsText(file);
+      
+      // Masquer la zone après l'importation d'un fichier
+      setShowDropZone(false);
     }
+  };
+
+  // Basculer l'affichage de la zone de dépôt
+  const toggleDropZone = () => {
+    setShowDropZone(!showDropZone);
   };
 
   // Obtenir la couleur pour chaque année
@@ -646,48 +658,28 @@ const RainComparison = () => {
         textAlign: 'center' 
       }}>Comparaison des précipitations</h2>
       
-      {/* Zone de glisser-déposer */}
-      <div
-        ref={dropZoneRef}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        style={{
-          border: `2px dashed ${isDragging ? '#60A5FA' : '#4B5563'}`,
-          borderRadius: '8px',
-          padding: '16px',
-          marginBottom: '16px',
-          textAlign: 'center',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          backgroundColor: isDragging ? 'rgba(96, 165, 250, 0.1)' : 'transparent'
-        }}
-        onClick={() => document.getElementById('file-input').click()}
-      >
-        <input
-          id="file-input"
-          type="file"
-          accept=".csv"
-          onChange={handleFileInputChange}
-          style={{ display: 'none' }}
-        />
-        <div>
-          <p style={{ marginBottom: '8px' }}>
-            {isDragging 
-              ? "Lâche ton fichier ici !" 
-              : "Glisse et dépose un fichier CSV ou clique pour sélectionner"}
-          </p>
-          {fileName && (
-            <p style={{ fontWeight: 'bold', color: '#60A5FA' }}>
-              Fichier actuel: {fileName}
-            </p>
-          )}
-        </div>
-      </div>
-      
-      {/* Bouton pour basculer le mode d'affichage */}
+      {/* Bouton pour afficher/masquer la zone de glisser-déposer */}
       <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+        <button
+          onClick={toggleDropZone}
+          style={{
+            backgroundColor: '#4B5563',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '8px 16px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            transition: 'background-color 0.2s',
+            outline: 'none',
+            marginRight: '10px'
+          }}
+          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#374151'}
+          onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#4B5563'}
+        >
+          {showDropZone ? 'Cacher l\'import' : 'Importer un fichier'}
+        </button>
+        
         <button
           onClick={toggleDisplayMode}
           style={{
@@ -708,7 +700,47 @@ const RainComparison = () => {
         </button>
       </div>
       
-{/* Indicateur de mode supprimé comme demandé */}
+      {/* Zone de glisser-déposer (conditionnelle) */}
+      {showDropZone && (
+        <div
+          ref={dropZoneRef}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          style={{
+            border: `2px dashed ${isDragging ? '#60A5FA' : '#4B5563'}`,
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '16px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            backgroundColor: isDragging ? 'rgba(96, 165, 250, 0.1)' : 'transparent'
+          }}
+          onClick={() => document.getElementById('file-input').click()}
+        >
+          <input
+            id="file-input"
+            type="file"
+            accept=".csv"
+            onChange={handleFileInputChange}
+            style={{ display: 'none' }}
+          />
+          <div>
+            <p style={{ marginBottom: '8px' }}>
+              {isDragging 
+                ? "Lâche ton fichier ici !" 
+                : "Glisse et dépose un fichier CSV ou clique pour sélectionner"}
+            </p>
+            {fileName && (
+              <p style={{ fontWeight: 'bold', color: '#60A5FA' }}>
+                Fichier actuel: {fileName}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
       
       {/* Totaux annuels */}
       <div style={{ 
