@@ -1,4 +1,4 @@
-// Solution complète pour corriger les bugs dans comparaisons.js
+// Solution mise à jour pour ajouter l'affichage des cumuls
 
 import React, { useState, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -35,7 +35,7 @@ const RainComparison = () => {
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState(null);
-  const [displayMode, setDisplayMode] = useState('daily'); // 'daily' ou 'monthly'
+  const [displayMode, setDisplayMode] = useState('daily'); // 'daily', 'monthly' ou 'cumulative'
   
   const dropZoneRef = useRef(null);
 
@@ -176,7 +176,12 @@ const RainComparison = () => {
       Object.keys(dailyData).forEach(day => {
         Object.keys(yearCumulatives).forEach(year => {
           if (yearCumulatives[year][day]) {
-            dailyData[day][`cumul${year}`] = yearCumulatives[year][day];
+            // S'assurer que la valeur est un nombre valide
+            const cumulValue = yearCumulatives[year][day];
+            dailyData[day][`cumul${year}`] = isNaN(cumulValue) ? 0 : cumulValue;
+          } else {
+            // Valeur par défaut à 0 pour éviter les NaN
+            dailyData[day][`cumul${year}`] = 0;
           }
         });
       });
@@ -236,7 +241,16 @@ const RainComparison = () => {
       console.log("Données mensuelles:", sortedMonthlyData);
       console.log("Totaux annuels:", yearlyTotalsTemp);
 
-      setData(displayMode === 'daily' ? sortedDailyData : sortedMonthlyData);
+      // Définir les données en fonction du mode d'affichage
+      if (displayMode === 'daily') {
+        setData(sortedDailyData);
+      } else if (displayMode === 'monthly') {
+        setData(sortedMonthlyData);
+      } else if (displayMode === 'cumulative') {
+        // En mode cumulatif, on utilise les mêmes données mais on affichera différemment
+        setData(sortedDailyData);
+      }
+      
       setYearlyTotals(yearlyTotalsTemp);
       setIsLoading(false);
     } catch (err) {
@@ -247,14 +261,37 @@ const RainComparison = () => {
     }
   };
 
-  // Basculer entre affichage quotidien et mensuel
+  // Basculer entre les modes d'affichage
   const toggleDisplayMode = () => {
-    const newMode = displayMode === 'daily' ? 'monthly' : 'daily';
+    // Rotation entre les trois modes
+    let newMode;
+    if (displayMode === 'daily') {
+      newMode = 'monthly';
+    } else if (displayMode === 'monthly') {
+      newMode = 'cumulative';
+    } else {
+      newMode = 'daily';
+    }
+    
     setDisplayMode(newMode);
     
     // Si on a des données CSV chargées, on retraite le fichier
     if (fileName) {
       fetchAndReprocessData();
+    }
+  };
+  
+  // Obtenir le libellé du bouton selon le mode d'affichage actuel
+  const getButtonLabel = () => {
+    switch (displayMode) {
+      case 'daily':
+        return 'Afficher par mois';
+      case 'monthly':
+        return 'Afficher les cumuls';
+      case 'cumulative':
+        return 'Afficher par jour';
+      default:
+        return 'Changer de vue';
     }
   };
   
@@ -353,11 +390,11 @@ const RainComparison = () => {
     return yearColors[year] || '#9CA3AF'; // Gris par défaut si année non définie
   };
 
-  // Tooltip personnalisé - CORRIGÉ POUR AFFICHER LES CUMULS ET ÉVITER "NaN undefined"
+  // Tooltip personnalisé - Avec affichage des cumuls
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
-      // Vérifier si label est défini pour éviter "NaN undefined"
-      if (!label) return null;
+      // Vérifier si label est défini ou valide pour éviter "NaN undefined"
+      if (!label || label === "NaN" || label === "undefined" || label.includes("undefined")) return null;
       
       // En mode mensuel, on affiche directement le nom du mois
       if (displayMode === 'monthly') {
@@ -384,17 +421,33 @@ const RainComparison = () => {
               overflowY: payload.length > 5 ? 'auto' : 'visible'
             }}>
               {payload
-                .filter(p => p.value > 0 && !p.dataKey.startsWith('cumul'))
+                .filter(p => {
+                  // En mode cumulatif, on affiche uniquement les cumuls, sinon uniquement les valeurs de pluie
+                  return displayMode === 'cumulative' 
+                    ? (p.value > 0 && p.dataKey.startsWith('cumul'))
+                    : (p.value > 0 && !p.dataKey.startsWith('cumul'));
+                })
                 .sort((a, b) => b.value - a.value)
                 .map((p) => {
-                  // Trouver le cumul correspondant pour cette année
-                  const cumulKey = `cumul${p.dataKey}`;
-                  const cumulPayload = payload.find(item => item.dataKey === cumulKey);
-                  const cumulValue = cumulPayload ? cumulPayload.value : null;
+                  // Trouver le cumul correspondant pour cette année si on n'est pas déjà en mode cumulatif
+                  let cumulValue = null;
+                  if (displayMode !== 'cumulative') {
+                    const yearKey = p.dataKey;
+                    const cumulKey = `cumul${yearKey}`;
+                    const cumulPayload = payload.find(item => item.dataKey === cumulKey);
+                    cumulValue = cumulPayload ? cumulPayload.value : null;
+                  }
+                  
+                  // Pour le mode cumulatif, on affiche directement l'année sans le préfixe "cumul"
+                  const displayKey = displayMode === 'cumulative' 
+                    ? p.dataKey.replace('cumul', '') 
+                    : p.dataKey;
                   
                   return (
                     <div key={p.dataKey} style={{ 
-                      color: p.color, 
+                      color: displayMode === 'cumulative' 
+                        ? getYearColor(p.dataKey.replace('cumul', '')) 
+                        : p.color, 
                       margin: '4px 0',
                       padding: '4px 0',
                       borderBottom: '1px dotted #374151'
@@ -403,11 +456,11 @@ const RainComparison = () => {
                         display: 'flex',
                         justifyContent: 'space-between'
                       }}>
-                        <span>{p.dataKey}:</span>
+                        <span>{displayKey}:</span>
                         <span style={{ fontWeight: 'bold', marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
                       </div>
-                      {/* Afficher le cumul s'il est disponible */}
-                      {cumulValue !== null && (
+                      {/* Afficher le cumul s'il est disponible et qu'on n'est pas en mode cumulatif */}
+                      {displayMode !== 'cumulative' && cumulValue !== null && (
                         <div style={{ 
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -422,7 +475,11 @@ const RainComparison = () => {
                     </div>
                   );
                 })}
-              {payload.filter(p => p.value > 0 && !p.dataKey.startsWith('cumul')).length === 0 && (
+              {payload.filter(p => {
+                return displayMode === 'cumulative' 
+                  ? (p.value > 0 && p.dataKey.startsWith('cumul'))
+                  : (p.value > 0 && !p.dataKey.startsWith('cumul'));
+              }).length === 0 && (
                 <p style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pas de précipitations</p>
               )}
             </div>
@@ -430,9 +487,8 @@ const RainComparison = () => {
         );
       }
       
-      // Pour l'affichage quotidien
+      // Pour l'affichage quotidien ou cumulatif
       // On extrait le mois et le jour à partir de la date (format "MM/JJ")
-      // Utiliser une regex pour être sûr d'extraire correctement les valeurs
       const match = /(\d{2})\/(\d{2})/.exec(label);
       
       // Si le format n'est pas celui attendu, afficher le label tel quel
@@ -483,17 +539,33 @@ const RainComparison = () => {
             overflowY: payload.length > 5 ? 'auto' : 'visible'
           }}>
             {payload
-              .filter(p => p.value > 0 && !p.dataKey.startsWith('cumul'))
+              .filter(p => {
+                // En mode cumulatif, on affiche uniquement les cumuls, sinon uniquement les valeurs de pluie
+                return displayMode === 'cumulative' 
+                  ? (p.value > 0 && p.dataKey.startsWith('cumul'))
+                  : (p.value > 0 && !p.dataKey.startsWith('cumul'));
+              })
               .sort((a, b) => b.value - a.value)
               .map((p) => {
-                // Trouver le cumul correspondant pour cette année
-                const cumulKey = `cumul${p.dataKey}`;
-                const cumulPayload = payload.find(item => item.dataKey === cumulKey);
-                const cumulValue = cumulPayload ? cumulPayload.value : null;
+                // Trouver le cumul correspondant pour cette année si on n'est pas déjà en mode cumulatif
+                let cumulValue = null;
+                if (displayMode !== 'cumulative') {
+                  const yearKey = p.dataKey;
+                  const cumulKey = `cumul${yearKey}`;
+                  const cumulPayload = payload.find(item => item.dataKey === cumulKey);
+                  cumulValue = cumulPayload ? cumulPayload.value : null;
+                }
+                
+                // Pour le mode cumulatif, on affiche directement l'année sans le préfixe "cumul"
+                const displayKey = displayMode === 'cumulative' 
+                  ? p.dataKey.replace('cumul', '') 
+                  : p.dataKey;
                 
                 return (
                   <div key={p.dataKey} style={{ 
-                    color: p.color, 
+                    color: displayMode === 'cumulative' 
+                      ? getYearColor(p.dataKey.replace('cumul', '')) 
+                      : p.color, 
                     margin: '4px 0',
                     padding: '4px 0',
                     borderBottom: '1px dotted #374151'
@@ -502,11 +574,11 @@ const RainComparison = () => {
                       display: 'flex',
                       justifyContent: 'space-between'
                     }}>
-                      <span>{p.dataKey}:</span>
+                      <span>{displayKey}:</span>
                       <span style={{ fontWeight: 'bold', marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
                     </div>
-                    {/* Afficher le cumul s'il est disponible */}
-                    {cumulValue !== null && (
+                    {/* Afficher le cumul s'il est disponible et qu'on n'est pas en mode cumulatif */}
+                    {displayMode !== 'cumulative' && cumulValue !== null && (
                       <div style={{ 
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -521,7 +593,11 @@ const RainComparison = () => {
                   </div>
                 );
               })}
-            {payload.filter(p => p.value > 0 && !p.dataKey.startsWith('cumul')).length === 0 && (
+            {payload.filter(p => {
+              return displayMode === 'cumulative' 
+                ? (p.value > 0 && p.dataKey.startsWith('cumul'))
+                : (p.value > 0 && !p.dataKey.startsWith('cumul'));
+            }).length === 0 && (
               <p style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pas de précipitations</p>
             )}
           </div>
@@ -606,9 +682,11 @@ const RainComparison = () => {
           onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#374151'}
           onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#4B5563'}
         >
-          {displayMode === 'daily' ? 'Afficher par mois' : 'Afficher par jour'}
+          {getButtonLabel()}
         </button>
       </div>
+      
+{/* Indicateur de mode supprimé comme demandé */}
       
       {/* Totaux annuels */}
       <div style={{ 
@@ -665,17 +743,25 @@ const RainComparison = () => {
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis 
-                  dataKey={displayMode === 'daily' ? 'date' : 'name'}
+                  dataKey={displayMode === 'daily' || displayMode === 'cumulative' ? 'date' : 'name'}
                   angle={-45}
                   textAnchor="end"
                   height={90} // Augmenter la hauteur pour plus d'espace
-                  interval={displayMode === 'daily' ? 30 : 0} // Montrer une étiquette tous les ~30 jours
+                  interval={displayMode === 'daily' || displayMode === 'cumulative' ? 30 : 0} // Montrer une étiquette tous les ~30 jours
                   tick={(props) => {
                     const { x, y, payload } = props;
                     
-                    // En mode quotidien, formatter l'étiquette
-                    if (displayMode === 'daily') {
-                      const [month, day] = payload.value.split('/');
+                    // Vérifier si la valeur est valide
+                    if (!payload.value || payload.value === "NaN" || payload.value === "undefined" || payload.value.includes("undefined")) {
+                      return null;
+                    }
+                    
+                    // En mode quotidien ou cumulatif, formatter l'étiquette
+                    if ((displayMode === 'daily' || displayMode === 'cumulative') && payload.value.includes('/')) {
+                      const parts = payload.value.split('/');
+                      if (parts.length !== 2) return null;
+                      
+                      const [month, day] = parts;
                       // Formatter pour montrer le jour et le mois court
                       const label = `${parseInt(day, 10)} ${getMonthShortName(month)}`;
                       
@@ -718,7 +804,7 @@ const RainComparison = () => {
                 <YAxis 
                   domain={[0, 'auto']}
                   label={{ 
-                    value: 'Précipitations (mm)', 
+                    value: displayMode === 'cumulative' ? 'Cumul de précipitations (mm)' : 'Précipitations (mm)', 
                     angle: -90, 
                     position: 'insideLeft',
                     offset: -10,
@@ -737,22 +823,23 @@ const RainComparison = () => {
                   }}
                 />
                 
-                {/* Lignes pour chaque année disponible - n'afficher que les vraies valeurs, pas les cumuls */}
+                {/* Lignes pour chaque année disponible */}
                 {availableYears.map(year => (
                   <Line 
                     key={year}
                     type="monotone" 
-                    dataKey={year} 
+                    dataKey={displayMode === 'cumulative' ? `cumul${year}` : year} 
                     stroke={getYearColor(year)}
-                    name={year}
-                    strokeWidth={2}
+                    name={displayMode === 'cumulative' ? `Cumul ${year}` : year}
+                    strokeWidth={displayMode === 'cumulative' ? 3 : 2}
                     dot={false}
                     activeDot={{ r: 6 }}
+                    hide={displayMode === 'cumulative' ? false : false}
                   />
                 ))}
                 
-                {/* On ajoute les lignes de cumul mais on les cache pour qu'elles soient disponibles dans le tooltip */}
-                {availableYears.map(year => (
+                {/* Lignes de cumul cachées pour le tooltip en mode non-cumulatif */}
+                {displayMode !== 'cumulative' && availableYears.map(year => (
                   <Line 
                     key={`cumul${year}`}
                     type="monotone" 
