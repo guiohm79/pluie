@@ -5,16 +5,14 @@ Salut toi ! Bienvenue dans ce petit bijou de visualisation de pluie. C'est pas t
  - [X] le script n'adapte pas le nombre de courbe en fonction du nombre d'année
  - [X] lorsque les données sont affichées par jour, l'etiquette ne montre pas les jours
  - [ ] l'etiquette affiche "NaN undifined"
- - [ ] Il faut ajouter lors du survolle, en meme temps que les données, le cumule depuis le 1er janvier pour chaque année
+ - [ ] Il faut ajouter lors du survolle du graphique, en meme temps que les données, le cumule depuis le 1er janvier pour chaque année
 
 
 ## 🚀 C'est quoi ce bazar ?
 
-C'est une appli React toute simple qui te permet de visualiser tes données de pluviométrie. Tu sais, ces petites stats que ton pluviomètre enregistre sagement pendant que toi, tu es au chaud sous ta couette. L'appli transforme ces données en jolis graphiques colorés qui te montrent quand il a plu des cordes et quand c'était sec comme le désert des Tartares.
+C'est une appli React toute simple qui te permet de visualiser tes données de pluviométrie. L'appli transforme ces données en graphiques colorés qui te montrent quand il a plu.
 
 ## 📦 Installation
-
-Alors, comment qu'on installe ce petit bijou ? C'est pas compliqué :
 
 1. Clone ce dépôt : `git clone [ton-adresse-git]`
 2. Va dans le dossier : `cd test-pluie`
@@ -24,13 +22,11 @@ Alors, comment qu'on installe ce petit bijou ? C'est pas compliqué :
 
 ## 🎮 Comment ça marche ?
 
-Franchement, c'est pas la mer à boire :
-
 1. **Au démarrage** : L'appli va chercher le fichier CSV par défaut dans le dossier `public` (celui qui s'appelle "pluviomètre gui_14_03_2025.csv").
 
-2. **Glisser-déposer** : Si t'as d'autres fichiers de données, tu peux les glisser-déposer dans la zone prévue. Pas besoin de se prendre la tête !
+2. **Glisser-déposer** : Si t'as d'autres fichiers de données, tu peux les glisser-déposer dans la zone prévue.
 
-3. **Changer de vue** : T'as un joli bouton pour basculer entre l'affichage par jour et l'affichage par mois. Des fois c'est bien de voir les détails, des fois c'est mieux d'avoir la vue d'ensemble.
+3. **Changer de vue** : T'as un bouton pour basculer entre l'affichage par jour et l'affichage par mois. 
 
 4. **Les couleurs** : Chaque année a sa couleur :
    - 2022 : Bleu 
@@ -38,7 +34,6 @@ Franchement, c'est pas la mer à boire :
    - 2024 : Jaune
    - 2025 : Rouge
    
-   Comme ça, tu vois d'un coup d'œil si cette année est plus arrosée que la précédente !
 
 ## 📊 Format du fichier CSV
 
