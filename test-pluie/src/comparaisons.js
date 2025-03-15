@@ -187,7 +187,7 @@ const RainComparison = () => {
       
       console.log("Années détectées:", yearsArray);
 
-      // Pour chaque année, calculer correctement les cumuls
+      // Pour chaque année, calculer correctement les cumuls et remplir les trous de données
       yearsArray.forEach(year => {
         // D'abord, trier les données par date
         if (cumulativeData[year]) {
@@ -195,10 +195,34 @@ const RainComparison = () => {
           
           // Calculer le cumul progressif
           let runningTotal = 0;
+          
+          // Créer un objet temporaire qui stocke tous les cumuls pour cette année
+          const yearCumulatives = {};
+          
+          // Calculer d'abord tous les cumuls pour les jours où on a des données
           cumulativeData[year].forEach(entry => {
             runningTotal += entry.rainValue;
-            // Ajouter le cumul au jour correspondant
-            dailyData[entry.monthDay][`cumul${year}`] = runningTotal;
+            // Stocker le cumul pour ce jour
+            yearCumulatives[entry.monthDay] = runningTotal;
+          });
+          
+          // Maintenant, parcourir tous les jours de l'année et assurer la continuité des cumuls
+          const allDates = Object.keys(dailyData).sort((a, b) => {
+            const [aMonth, aDay] = a.split('/').map(Number);
+            const [bMonth, bDay] = b.split('/').map(Number);
+            return (aMonth * 100 + aDay) - (bMonth * 100 + bDay);
+          });
+          
+          let lastKnownCumul = 0;
+          
+          allDates.forEach(date => {
+            // Si on a une valeur de cumul pour cette date, on l'utilise
+            if (yearCumulatives[date] !== undefined) {
+              lastKnownCumul = yearCumulatives[date];
+            }
+            
+            // On assigne le cumul à cette date (soit la nouvelle valeur, soit la dernière connue)
+            dailyData[date][`cumul${year}`] = lastKnownCumul;
           });
         }
       });
@@ -899,12 +923,13 @@ const RainComparison = () => {
                 {availableYears.map(year => (
                   <Line 
                     key={year}
-                    type="monotone" 
+                    type={displayMode === 'cumulative' ? "monotone" : "linear"}
                     dataKey={displayMode === 'cumulative' ? `cumul${year}` : year} 
                     stroke={getYearColor(year)}
                     name={displayMode === 'cumulative' ? `Cumul ${year}` : year}
                     strokeWidth={displayMode === 'cumulative' ? 3 : 2}
                     dot={false}
+                    connectNulls={displayMode === 'cumulative' ? true : false}
                     activeDot={{ r: 6 }}
                     hide={displayMode === 'cumulative' ? false : false}
                   />
