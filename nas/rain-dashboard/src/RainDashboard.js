@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from 'recharts';
 import Papa from 'papaparse';
 
 /**
  * Tableau de bord de visualisation des précipitations
- * Optimisé pour Docker et l'intégration avec Home Assistant
+ * Version corrigée pour résoudre les problèmes d'affichage des données cumulatives
  */
 const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
   // États pour les données et le fonctionnement
-  const [data, setData] = useState([]);
+  const [rawData, setRawData] = useState([]);
   const [yearlyTotals, setYearlyTotals] = useState({});
   const [availableYears, setAvailableYears] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -16,7 +16,7 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
   const [displayMode, setDisplayMode] = useState('daily'); // 'daily' ou 'cumulative'
   
   // États pour le zoom
-  const [zoomDomain, setZoomDomain] = useState({ start: 0, end: 365 });
+  const [zoomDomain, setZoomDomain] = useState({ start: 0, end: 364 });
   const [refAreaLeft, setRefAreaLeft] = useState('');
   const [refAreaRight, setRefAreaRight] = useState('');
   const [isZooming, setIsZooming] = useState(false);
@@ -24,6 +24,7 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
   // États pour l'interface
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [dataVersion, setDataVersion] = useState(0); // Force refresh when data changes
 
   // Couleurs pour les années
   const YEAR_COLORS = {
@@ -58,14 +59,37 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
     return YEAR_COLORS[year] || '#9CA3AF'; // Gris par défaut
   }, []);
 
-  // Traitement des données CSV
-  const processCSV = useCallback((csvText) => {
+  // Générer la liste complète des jours de l'année
+  const getAllDaysOfYear = useCallback(() => {
+    const days = [];
+    // Tableau des jours par mois (sans considérer les années bissextiles)
+    const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    
+    for (let month = 1; month <= 12; month++) {
+      for (let day = 1; day <= daysInMonth[month-1]; day++) {
+        const dayStr = day.toString().padStart(2, '0');
+        const monthStr = month.toString().padStart(2, '0');
+        // Utiliser MMDD comme clé pour l'ordre (facile à trier)
+        days.push({
+          key: `${monthStr}${dayStr}`,
+          display: `${monthStr}/${dayStr}`,
+          dayOfYear: days.length,
+          month,
+          day
+        });
+      }
+    }
+    return days;
+  }, []);
+
+  // Fonction pour parser les données du CSV
+  const parseCSVData = useCallback((csvText) => {
     try {
       setIsLoading(true);
       setError(null);
-
-      // Analyse du CSV avec PapaParse
-      const result = Papa.parse(csvText, { 
+      
+      // Analyse initiale du CSV
+      const result = Papa.parse(csvText, {
         delimiter: ';',
         header: false,
         skipEmptyLines: true
@@ -74,215 +98,136 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
       if (!result.data || result.data.length < 2) {
         throw new Error("Le fichier CSV ne contient pas assez de données");
       }
-
-      // Trouver l'indice de la ligne qui contient "Timestamp"
-      let dataStartIndex = 0;
-      let timestampColumnIndex = 0;
-      let dateColumnIndex = 1;
-      let rainColumnIndex = 2;
       
-      // Recherche des colonnes dans les 10 premières lignes
-      for (let i = 0; i < Math.min(10, result.data.length); i++) {
+      // Identifier les colonnes à partir des en-têtes
+      let timestampCol = -1;
+      let dateCol = -1;
+      let rainCol = -1;
+      let headerRow = -1;
+      
+      // Chercher les en-têtes dans les 15 premières lignes
+      for (let i = 0; i < Math.min(15, result.data.length); i++) {
         const row = result.data[i];
         if (!row) continue;
         
         for (let j = 0; j < row.length; j++) {
-          const cell = row[j];
-          if (!cell) continue;
+          if (!row[j]) continue;
           
-          const cellText = cell.toString().toLowerCase();
+          const cell = row[j].toString().toLowerCase().trim();
           
-          if (cellText === "timestamp") {
-            dataStartIndex = i + 1;
-            timestampColumnIndex = j;
-          } else if (cellText.includes("timezone") || cellText.includes("date")) {
-            dateColumnIndex = j;
-          } else if (cellText === "sum_rain" || cellText.includes("rain") || cellText.includes("pluie")) {
-            rainColumnIndex = j;
+          if (cell === 'timestamp') {
+            timestampCol = j;
+            headerRow = i;
+          } else if (cell.includes('timezone') || cell.includes('date')) {
+            dateCol = j;
+          } else if (cell === 'sum_rain' || cell.includes('rain') || cell.includes('pluie')) {
+            rainCol = j;
           }
         }
         
-        // Si on a trouvé un en-tête, on arrête la recherche
-        if (dataStartIndex > 0) break;
+        // Si on a trouvé l'en-tête, on arrête
+        if (headerRow !== -1) break;
       }
       
-      // Si on n'a pas trouvé d'en-tête, on suppose que les données commencent à la ligne 3
-      if (dataStartIndex === 0) {
-        dataStartIndex = 3;
+      // Si aucun en-tête n'a été trouvé, on utilise des valeurs par défaut
+      if (headerRow === -1) {
+        headerRow = 2;
+        timestampCol = 0;
+        dateCol = 1;
+        rainCol = 2;
       }
-
-      // Structures pour stocker les données
-      const dailyData = {};       // Données quotidiennes
-      const yearlyTotalsTemp = {}; // Totaux annuels
-      const yearsFound = new Set(); // Ensemble des années trouvées
-      const cumulativeData = {};  // Données cumulatives
       
-      // Parcourir les lignes de données
-      for (let i = dataStartIndex; i < result.data.length; i++) {
+      // Extraction des données brutes par jour
+      const rawRainData = {};  // Structure: { 'YYYY': { 'MMDD': valeur } }
+      const yearTotals = {};   // Total par année
+      
+      for (let i = headerRow + 1; i < result.data.length; i++) {
         const row = result.data[i];
-        if (!row || row.length <= Math.max(timestampColumnIndex, dateColumnIndex, rainColumnIndex)) continue;
+        if (!row || row.length <= Math.max(timestampCol, dateCol, rainCol)) continue;
         
-        // Récupérer les valeurs des colonnes
-        const timestamp = row[timestampColumnIndex];
-        let dateStr = row[dateColumnIndex] || "";
+        // Extraire la date
+        let year = '';
+        let month = '';
+        let day = '';
+        
+        // Essayer d'extraire la date du timestamp Unix
+        if (timestampCol >= 0 && row[timestampCol] && !isNaN(row[timestampCol])) {
+          const date = new Date(parseInt(row[timestampCol], 10) * 1000);
+          year = date.getFullYear().toString();
+          month = (date.getMonth() + 1).toString().padStart(2, '0');
+          day = date.getDate().toString().padStart(2, '0');
+        }
+        // Sinon, essayer d'extraire de la colonne date
+        else if (dateCol >= 0 && row[dateCol]) {
+          const dateStr = row[dateCol].toString().replace(/"/g, '');
+          
+          // Différents formats possibles: YYYY/MM/DD ou DD/MM/YYYY
+          const patterns = [
+            /(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/, // YYYY/MM/DD
+            /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/  // DD/MM/YYYY
+          ];
+          
+          for (const pattern of patterns) {
+            const match = pattern.exec(dateStr);
+            if (match) {
+              if (match[1].length === 4) {
+                year = match[1];
+                month = match[2].padStart(2, '0');
+                day = match[3].padStart(2, '0');
+              } else {
+                day = match[1].padStart(2, '0');
+                month = match[2].padStart(2, '0');
+                year = match[3];
+              }
+              break;
+            }
+          }
+        }
+        
+        // Si on n'a pas pu extraire une date valide, passer à la ligne suivante
+        if (!year || !month || !day) continue;
+        
+        // Extraire la valeur de pluie
         let rainValue = 0;
-        
-        // Nettoyage et conversion de la valeur de pluie
-        if (row[rainColumnIndex] !== undefined) {
-          const cleanValue = row[rainColumnIndex].toString().replace(',', '.').trim();
+        if (rainCol >= 0 && row[rainCol] !== undefined) {
+          const cleanValue = row[rainCol].toString().replace(',', '.').trim();
           rainValue = parseFloat(cleanValue);
           if (isNaN(rainValue) || rainValue < 0 || rainValue > 500) {
-            rainValue = 0; // Valeur par défaut ou ignorer cette ligne
+            rainValue = 0;
           }
         }
         
-        // Nettoyage de la date
-        if (dateStr) {
-          dateStr = dateStr.toString().replace(/"/g, '');
+        // Enregistrer les données par jour et année
+        if (!rawRainData[year]) {
+          rawRainData[year] = {};
+          yearTotals[year] = 0;
         }
         
-        let dateObj;
-        let year, month, day;
-        
-        // Essayer de parser la date à partir du timestamp Unix
-        if (timestamp && !isNaN(timestamp)) {
-          dateObj = new Date(parseInt(timestamp, 10) * 1000);
-          year = dateObj.getFullYear().toString();
-          month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
-          day = dateObj.getDate().toString().padStart(2, '0');
-        } 
-        // Sinon, essayer de parser à partir de la chaîne de date
-        else if (dateStr) {
-          // Format possible: YYYY/MM/DD, DD/MM/YYYY, etc.
-          let dateMatch = /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/.exec(dateStr);
-          
-          if (!dateMatch) {
-            dateMatch = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/.exec(dateStr);
-            if (dateMatch) {
-              day = dateMatch[1].padStart(2, '0');
-              month = dateMatch[2].padStart(2, '0');
-              year = dateMatch[3];
-            }
-          } else {
-            year = dateMatch[1];
-            month = dateMatch[2].padStart(2, '0');
-            day = dateMatch[3].padStart(2, '0');
-          }
-          
-          if (!year) {
-            continue; // Passer à la ligne suivante si le format de date n'est pas reconnu
-          }
-        } else {
-          continue; // Aucune information de date disponible
-        }
-        
-        // Ajouter l'année à notre ensemble
-        yearsFound.add(year);
-        
-        // Initialiser le total annuel
-        if (!yearlyTotalsTemp[year]) {
-          yearlyTotalsTemp[year] = 0;
-        }
-        
-        // Clé unique pour chaque jour
-        const monthDay = `${month}/${day}`;
-        
-        // Date complète pour trier
-        const fullDate = `${year}-${month}-${day}`;
-        
-        // Initialiser l'objet du jour
-        if (!dailyData[monthDay]) {
-          dailyData[monthDay] = {
-            date: monthDay
-          };
-        }
-        
-        // Ajouter la valeur du jour (additionner si plusieurs entrées pour le même jour)
-        dailyData[monthDay][year] = (dailyData[monthDay][year] || 0) + rainValue;
-        
-        // Cumuler la valeur pour l'année
-        yearlyTotalsTemp[year] += rainValue;
-        
-        // Pour calculer les cumuls par année
-        if (!cumulativeData[year]) {
-          cumulativeData[year] = [];
-        }
-        
-        // Ajouter cette entrée au tableau pour cette année
-        cumulativeData[year].push({
-          fullDate,
-          monthDay,
-          rainValue,
-          timestamp: new Date(fullDate).getTime()
-        });
+        const mmdd = `${month}${day}`;
+        rawRainData[year][mmdd] = (rawRainData[year][mmdd] || 0) + rainValue;
+        yearTotals[year] += rainValue;
       }
-
-      // Convertir l'ensemble des années en tableau trié
-      const yearsArray = Array.from(yearsFound).sort();
       
-      // Pour chaque année, calculer les cumuls
-      yearsArray.forEach(year => {
-        if (cumulativeData[year] && cumulativeData[year].length > 0) {
-          // Trier les données par date
-          cumulativeData[year].sort((a, b) => a.timestamp - b.timestamp);
-          
-          // Calculer le cumul progressif
-          let runningTotal = 0;
-          const yearCumulatives = {};
-          
-          // Calculer tous les cumuls
-          cumulativeData[year].forEach(entry => {
-            runningTotal += entry.rainValue;
-            yearCumulatives[entry.monthDay] = runningTotal;
-          });
-          
-          // Parcourir tous les jours et assurer la continuité des cumuls
-          const allDates = Object.keys(dailyData).sort((a, b) => {
-            const [aMonth, aDay] = a.split('/').map(Number);
-            const [bMonth, bDay] = b.split('/').map(Number);
-            return (aMonth * 100 + aDay) - (bMonth * 100 + bDay);
-          });
-          
-          let lastKnownCumul = 0;
-          allDates.forEach(date => {
-            if (yearCumulatives[date] !== undefined) {
-              lastKnownCumul = yearCumulatives[date];
-            }
-            dailyData[date][`cumul${year}`] = lastKnownCumul;
-          });
-        }
-      });
-
-      // Trier les données quotidiennes par date
-      const sortedDailyData = Object.values(dailyData).sort((a, b) => {
-        const [aMonth, aDay] = a.date.split('/').map(Number);
-        const [bMonth, bDay] = b.date.split('/').map(Number);
-        return (aMonth * 100 + aDay) - (bMonth * 100 + bDay);
+      // Formater les totaux annuels
+      Object.keys(yearTotals).forEach(year => {
+        yearTotals[year] = Math.round(yearTotals[year] * 10) / 10;
       });
       
-      // Arrondir les totaux annuels
-      Object.keys(yearlyTotalsTemp).forEach(year => {
-        if (yearlyTotalsTemp[year] > 5000) {
-          yearlyTotalsTemp[year] = 0; // Probablement une erreur
-        } else {
-          yearlyTotalsTemp[year] = Math.round(yearlyTotalsTemp[year] * 10) / 10;
-        }
-      });
-
-      // Mise à jour des états
-      setData(sortedDailyData);
-      setYearlyTotals(yearlyTotalsTemp);
-      setAvailableYears(yearsArray);
+      setRawData(rawRainData);
+      setYearlyTotals(yearTotals);
+      setAvailableYears(Object.keys(rawRainData).sort());
       setLastUpdated(new Date());
       setIsLoading(false);
+      setDataVersion(prev => prev + 1); // Force re-render
+      
     } catch (err) {
-      console.error('Erreur lors du traitement du fichier CSV:', err);
+      console.error('Erreur lors du traitement des données CSV:', err);
       setError(`Erreur: ${err.message}`);
       setIsLoading(false);
     }
   }, []);
 
-  // Charger les données du CSV
+  // Chargement initial des données
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -291,41 +236,83 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
           throw new Error(`Erreur HTTP: ${response.status}`);
         }
         const text = await response.text();
-        processCSV(text);
+        parseCSVData(text);
       } catch (error) {
-        console.error("Erreur lors du chargement des données:", error);
+        console.error("Erreur lors du chargement du fichier CSV:", error);
         setError(`Erreur lors du chargement des données: ${error.message}`);
         setIsLoading(false);
       }
     };
-
+    
     loadData();
-
-    // Configuration de l'actualisation automatique si activée
-    let refreshInterval;
+    
+    // Actualisation automatique
+    let interval;
     if (autoRefresh) {
-      refreshInterval = setInterval(() => {
-        loadData();
-      }, 30 * 60 * 1000); // 30 minutes
+      interval = setInterval(loadData, 30 * 60 * 1000); // 30 minutes
     }
-
+    
     return () => {
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-      }
+      if (interval) clearInterval(interval);
     };
-  }, [csvPath, autoRefresh, processCSV]);
+  }, [csvPath, autoRefresh, parseCSVData]);
+
+  // Préparation des données pour l'affichage
+  const displayData = useMemo(() => {
+    // Si pas de données, retourner un tableau vide
+    if (Object.keys(rawData).length === 0) return [];
+    
+    // Récupérer tous les jours de l'année
+    const allDays = getAllDaysOfYear();
+    
+    // Préparer les données pour chaque jour
+    const formattedData = allDays.map(dayInfo => {
+      const dataPoint = {
+        id: dayInfo.dayOfYear,
+        date: dayInfo.display,
+        key: dayInfo.key
+      };
+      
+      // Pour chaque année disponible
+      availableYears.forEach(year => {
+        // Valeur du jour (précipitations)
+        const rainValue = rawData[year]?.[dayInfo.key] || 0;
+        dataPoint[year] = rainValue;
+        
+        // Initialisation des cumuls
+        dataPoint[`cumul${year}`] = 0;
+      });
+      
+      return dataPoint;
+    });
+    
+    // Calcul des cumuls pour chaque année
+    availableYears.forEach(year => {
+      let cumul = 0;
+      for (let i = 0; i < formattedData.length; i++) {
+        // Ajouter la valeur du jour au cumul
+        cumul += formattedData[i][year] || 0;
+        // Mettre à jour le cumul
+        formattedData[i][`cumul${year}`] = cumul;
+      }
+    });
+    
+    return formattedData;
+  }, [rawData, availableYears, getAllDaysOfYear, dataVersion]);
 
   // Basculer entre les modes d'affichage
   const toggleDisplayMode = () => {
     setDisplayMode(prev => prev === 'daily' ? 'cumulative' : 'daily');
   };
 
-  // Fonctions pour le zoom
+  // Gestion du zoom
   const handleMouseDown = (e) => {
     if (displayMode === 'daily' && e && e.activeLabel) {
-      setRefAreaLeft(e.activeLabel);
-      setIsZooming(true);
+      const index = displayData.findIndex(item => item.date === e.activeLabel);
+      if (index !== -1) {
+        setRefAreaLeft(e.activeLabel);
+        setIsZooming(true);
+      }
     }
   };
 
@@ -337,28 +324,28 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
 
   const handleMouseUp = () => {
     if (!isZooming) return;
-
+    
     if (!refAreaLeft || !refAreaRight) {
       setIsZooming(false);
       setRefAreaLeft('');
       setRefAreaRight('');
       return;
     }
-
-    let idxLeft = data.findIndex(item => item.date === refAreaLeft);
-    let idxRight = data.findIndex(item => item.date === refAreaRight);
     
-    if (idxLeft < 0 || idxRight < 0) {
+    let idxLeft = displayData.findIndex(item => item.date === refAreaLeft);
+    let idxRight = displayData.findIndex(item => item.date === refAreaRight);
+    
+    if (idxLeft === -1 || idxRight === -1) {
       setIsZooming(false);
       setRefAreaLeft('');
       setRefAreaRight('');
       return;
     }
-
+    
     if (idxLeft > idxRight) {
       [idxLeft, idxRight] = [idxRight, idxLeft];
     }
-
+    
     setZoomDomain({ start: idxLeft, end: idxRight });
     setIsZooming(false);
     setRefAreaLeft('');
@@ -367,132 +354,128 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
 
   // Réinitialiser le zoom
   const resetZoom = () => {
-    setZoomDomain({ start: 0, end: 365 });
+    setZoomDomain({ start: 0, end: 364 });
   };
-  
+
   // Vérifier si on a zoomé
   const isZoomed = () => {
-    return zoomDomain.start > 0 || zoomDomain.end < 365;
+    return zoomDomain.start > 0 || zoomDomain.end < 364;
   };
 
   // Tooltip personnalisé
   const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      if (!label || label === "NaN" || label === "undefined" || label.includes("undefined")) {
-        return null;
-      }
-      
-      const match = /(\d{2})\/(\d{2})/.exec(label);
-      if (!match) {
-        return (
-          <div style={{ 
-            backgroundColor: '#1F2937', 
-            padding: '12px', 
-            border: '1px solid #374151',
-            borderRadius: '6px', 
-            boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-            color: '#E5E7EB'
-          }}>
-            <p>{label}</p>
-          </div>
-        );
-      }
-      
-      const month = match[1];
-      const day = match[2];
-      const monthName = getMonthName(month);
-      const completeDate = `${parseInt(day, 10)} ${monthName}`;
-      
-      return (
-        <div style={{ 
-          backgroundColor: '#1F2937', 
-          padding: '12px', 
-          border: '1px solid #374151',
-          borderRadius: '6px', 
-          boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-          color: '#E5E7EB',
-          maxWidth: '280px'
+    if (!active || !payload || !payload.length) return null;
+    
+    // Extraction du mois et du jour
+    const match = /(\d{2})\/(\d{2})/.exec(label);
+    if (!match) return null;
+    
+    const month = match[1];
+    const day = match[2];
+    const monthName = getMonthName(month);
+    
+    return (
+      <div style={{ 
+        backgroundColor: '#1F2937', 
+        padding: '12px', 
+        border: '1px solid #374151',
+        borderRadius: '6px', 
+        boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+        color: '#E5E7EB',
+        maxWidth: '280px',
+        fontSize: '14px'
+      }}>
+        <p style={{ 
+          fontWeight: 'bold', 
+          marginBottom: '8px', 
+          borderBottom: '1px solid #374151',
+          paddingBottom: '4px',
+          fontSize: '16px'
         }}>
-          <p style={{ 
-            fontWeight: 'bold', 
-            marginBottom: '8px', 
-            borderBottom: '1px solid #374151',
-            paddingBottom: '4px'
-          }}>
-            {completeDate}
-          </p>
-          <div style={{ 
-            maxHeight: '200px',
-            overflowY: payload.length > 5 ? 'auto' : 'visible'
-          }}>
-            {payload
-              .filter(p => {
-                return displayMode === 'cumulative' 
-                  ? (p.value > 0 && p.dataKey.startsWith('cumul'))
-                  : (p.value > 0 && !p.dataKey.startsWith('cumul'));
-              })
-              .sort((a, b) => b.value - a.value)
-              .map((p) => {
-                let cumulValue = null;
-                if (displayMode !== 'cumulative') {
-                  const yearKey = p.dataKey;
-                  const cumulKey = `cumul${yearKey}`;
-                  const cumulPayload = payload.find(item => item.dataKey === cumulKey);
-                  cumulValue = cumulPayload ? cumulPayload.value : null;
-                }
-                
-                const displayKey = displayMode === 'cumulative' 
-                  ? p.dataKey.replace('cumul', '') 
-                  : p.dataKey;
-                
-                return (
-                  <div key={p.dataKey} style={{ 
-                    color: displayMode === 'cumulative' 
-                      ? getYearColor(p.dataKey.replace('cumul', '')) 
-                      : getYearColor(p.dataKey), 
-                    margin: '4px 0',
-                    padding: '4px 0',
-                    borderBottom: '1px dotted #374151'
+          {day} {monthName}
+        </p>
+        
+        <div style={{ 
+          maxHeight: '200px',
+          overflowY: payload.length > 5 ? 'auto' : 'visible'
+        }}>
+          {payload
+            .filter(p => {
+              // Filtrer selon le mode d'affichage
+              return displayMode === 'cumulative' 
+                ? (p.dataKey.startsWith('cumul') && p.value > 0)
+                : (!p.dataKey.startsWith('cumul') && p.dataKey !== 'date' && p.dataKey !== 'id' && p.dataKey !== 'key' && p.value > 0);
+            })
+            .sort((a, b) => {
+              // Tri par valeur décroissante
+              if (displayMode === 'cumulative') {
+                return b.value - a.value;
+              }
+              // Pour le mode quotidien, on trie par année décroissante
+              return b.dataKey.localeCompare(a.dataKey);
+            })
+            .map((p) => {
+              // Informations de cumul pour le mode quotidien
+              let cumulValue = null;
+              if (displayMode !== 'cumulative') {
+                const yearKey = p.dataKey;
+                const cumulKey = `cumul${yearKey}`;
+                const cumulPayload = payload.find(item => item.dataKey === cumulKey);
+                cumulValue = cumulPayload ? cumulPayload.value : null;
+              }
+              
+              // Clé d'affichage
+              const displayKey = displayMode === 'cumulative' 
+                ? p.dataKey.replace('cumul', '') 
+                : p.dataKey;
+              
+              return (
+                <div key={p.dataKey} style={{ 
+                  color: displayMode === 'cumulative' 
+                    ? getYearColor(p.dataKey.replace('cumul', '')) 
+                    : getYearColor(p.dataKey),
+                  margin: '4px 0',
+                  padding: '4px 0',
+                  borderBottom: '1px dotted #374151'
+                }}>
+                  <div style={{ 
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
                   }}>
+                    <span style={{ fontWeight: 'bold' }}>{displayKey}:</span>
+                    <span style={{ marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
+                  </div>
+                  
+                  {displayMode !== 'cumulative' && cumulValue !== null && (
                     <div style={{ 
                       display: 'flex',
-                      justifyContent: 'space-between'
+                      justifyContent: 'space-between',
+                      fontSize: '0.9em',
+                      marginTop: '2px',
+                      opacity: '0.8'
                     }}>
-                      <span>{displayKey}:</span>
-                      <span style={{ fontWeight: 'bold', marginLeft: '8px' }}>{p.value.toFixed(1)} mm</span>
+                      <span>Cumul {displayKey}:</span>
+                      <span>{cumulValue.toFixed(1)} mm</span>
                     </div>
-                    
-                    {displayMode !== 'cumulative' && cumulValue !== null && (
-                      <div style={{ 
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        fontSize: '0.9em',
-                        marginTop: '2px',
-                        opacity: '0.8'
-                      }}>
-                        <span>Cumul {p.dataKey}:</span>
-                        <span>{cumulValue.toFixed(1)} mm</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              
-            {payload.filter(p => {
-              return displayMode === 'cumulative' 
-                ? (p.value > 0 && p.dataKey.startsWith('cumul'))
-                : (p.value > 0 && !p.dataKey.startsWith('cumul'));
-            }).length === 0 && (
-              <p style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pas de précipitations</p>
-            )}
-          </div>
+                  )}
+                </div>
+              );
+            })}
+          
+          {payload.filter(p => {
+            return displayMode === 'cumulative' 
+              ? (p.value > 0 && p.dataKey.startsWith('cumul'))
+              : (p.value > 0 && !p.dataKey.startsWith('cumul') && p.dataKey !== 'date' && p.dataKey !== 'id' && p.dataKey !== 'key');
+          }).length === 0 && (
+            <p style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pas de précipitations</p>
+          )}
         </div>
-      );
-    }
-    return null;
+      </div>
+    );
   };
 
-  // Interface utilisateur principale
+  // Rendu du composant
   return (
     <div style={{ 
       width: '100%', 
@@ -523,7 +506,7 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
             marginRight: '10px'
           }}
         >
-          {displayMode === 'daily' ? 'Afficher les cumuls' : 'Afficher par jour'}
+          {displayMode === 'daily' ? 'Afficher par jour' : 'Afficher les cumuls'}
         </button>
         
         <button
@@ -538,7 +521,7 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
             fontWeight: 'bold'
           }}
         >
-          {autoRefresh ? 'Actualisation auto activée' : 'Actualisation auto désactivée'}
+          Actualisation auto {autoRefresh ? 'activée' : 'désactivée'}
         </button>
       </div>
       
@@ -576,7 +559,7 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
         </div>
       )}
       
-      {/* Indicateur de dernière mise à jour */}
+      {/* Dernière mise à jour */}
       {lastUpdated && (
         <div style={{ 
           textAlign: 'center', 
@@ -624,8 +607,8 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={displayMode === 'daily' ? 
-                data.slice(zoomDomain.start, zoomDomain.end + 1) : 
-                data
+                displayData.slice(zoomDomain.start, zoomDomain.end + 1) : 
+                displayData
               }
               margin={{
                 top: 20,
@@ -643,7 +626,7 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
                 angle={-45}
                 textAnchor="end"
                 height={90}
-                interval={displayMode === 'daily' ? 30 : 0}
+                interval={displayMode === 'daily' ? 30 : 15}
                 tick={(props) => {
                   const { x, y, payload } = props;
                   
@@ -724,15 +707,16 @@ const RainDashboard = ({ csvPath = './data/rainfall.csv' }) => {
               {/* Lignes pour chaque année */}
               {availableYears.map(year => (
                 <Line 
-                  key={year}
+                  key={displayMode === 'cumulative' ? `cumul${year}` : year}
                   type={displayMode === 'cumulative' ? "monotone" : "linear"}
                   dataKey={displayMode === 'cumulative' ? `cumul${year}` : year} 
                   stroke={getYearColor(year)}
                   name={displayMode === 'cumulative' ? `Cumul ${year}` : year}
                   strokeWidth={displayMode === 'cumulative' ? 3 : 2}
                   dot={false}
-                  connectNulls={displayMode === 'cumulative' ? true : false}
+                  connectNulls={true}
                   activeDot={{ r: 6 }}
+                  isAnimationActive={false}
                 />
               ))}
               
