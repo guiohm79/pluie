@@ -1,0 +1,217 @@
+# Guide de déploiement Docker pour le tableau de bord des précipitations sur QNAP
+
+Ce guide vous accompagne pas à pas pour déployer votre tableau de bord de précipitations dans un conteneur Docker sur votre NAS QNAP, puis l'intégrer à Home Assistant.
+
+## Prérequis
+
+- Un NAS QNAP avec Container Station installé
+- Accès SSH à votre NAS QNAP
+- Accès administrateur à votre instance Home Assistant
+- Connaissances de base de Docker
+
+## 1. Préparation du projet
+
+### 1.1. Préparer la structure du projet
+
+Créez un nouveau dossier sur votre PC ou directement sur votre QNAP :
+
+```
+rain-dashboard/
+├── src/
+│   └── ... (les fichiers de votre application React)
+├── public/
+│   └── ... (fichiers statiques)
+├── data/
+│   └── (dossier pour stocker les fichiers CSV)
+├── Dockerfile
+├── nginx.conf
+├── docker-compose.yml
+├── update-csv.sh
+└── package.json
+```
+
+### 1.2. Adapter le composant React
+
+Remplacez votre composant `RainComparison` par le `RainDashboard` optimisé fourni précédemment. Veillez à modifier le code pour qu'il cherche le fichier CSV dans le bon emplacement :
+
+```javascript
+// Dans la fonction loadData du composant RainDashboard
+const csvUrl = './data/rainfall.csv'; // Pointe vers le volume monté dans Docker
+```
+
+### 1.3. Créer les fichiers de configuration Docker
+
+Placez les fichiers `Dockerfile`, `nginx.conf` et `docker-compose.yml` fournis dans le répertoire racine de votre projet.
+
+## 2. Déploiement sur QNAP
+
+### 2.1. Installer Container Station
+
+Si ce n'est pas déjà fait, installez Container Station depuis l'App Center de QNAP.
+
+### 2.2. Préparer les dossiers sur le QNAP
+
+Connectez-vous à votre QNAP via SSH ou File Station et créez les dossiers suivants :
+
+```bash
+mkdir -p /share/Container/rain-dashboard/data
+mkdir -p /share/Container/rain-dashboard/logs
+```
+
+### 2.3. Transférer les fichiers du projet
+
+Vous avez deux options :
+
+**Option 1: Utiliser File Station de QNAP**
+- Copiez tous les fichiers du projet dans `/share/Container/rain-dashboard/`
+
+**Option 2: Utiliser SCP depuis votre PC**
+```bash
+scp -r ./rain-dashboard admin@192.168.1.57:/share/Container/
+```
+
+### 2.4. Configurer les permissions
+
+```bash
+ssh guiohm@192.168.1.57
+cd /share/Container/rain-dashboard
+chmod +x update-csv.sh
+```
+
+### 2.5. Construire et démarrer le conteneur
+
+Via SSH ou Container Station :
+
+```bash
+cd /share/Container/rain-dashboard
+docker-compose up -d --build
+```
+
+Cela va :
+1. Construire l'image Docker avec votre application
+2. Démarrer le conteneur
+3. Exposer l'application sur le port 8080 (ou celui que vous avez configuré)
+
+## 3. Configuration de la synchronisation des données
+
+### 3.1. Copier le script de mise à jour sur QNAP
+
+Le script `update-csv.sh` doit être déjà dans votre dossier. Vérifiez qu'il est exécutable :
+
+```bash
+chmod +x /share/Container/rain-dashboard/update-csv.sh
+```
+
+### 3.2. Configurer une tâche planifiée sur QNAP
+
+1. Ouvrez l'interface web QNAP
+2. Allez dans "Panneau de configuration" > "Paramètres système" > "Tâches planifiées"
+3. Cliquez sur "Créer" > "Tâche planifiée exécutée par l'utilisateur"
+4. Configurez la tâche :
+   - Nom : "Mise à jour données pluie"
+   - Utilisateur : admin (ou votre utilisateur)
+   - Planification : Toutes les heures (ajustez selon vos besoins)
+   - Commande : `/share/Container/rain-dashboard/update-csv.sh`
+5. Cliquez sur "OK" pour sauvegarder
+
+### 3.3. Exécuter manuellement la première synchronisation
+
+```bash
+/share/Container/rain-dashboard/update-csv.sh
+```
+
+## 4. Intégration avec Home Assistant
+
+### 4.1. Intégration via carte iframe
+
+Ajoutez cette configuration à votre tableau de bord Home Assistant :
+
+```yaml
+type: iframe
+url: http://192.168.1.xxx:8080
+title: Visualisation des précipitations
+aspect_ratio: 16:9
+```
+
+### 4.2. Configuration d'un panel personnalisé
+
+Ajoutez ceci à votre `configuration.yaml` :
+
+```yaml
+panel_iframe:
+  rain_dashboard:
+    title: 'Précipitations'
+    url: 'http://192.168.1.xxx:8080'
+    icon: 'mdi:weather-rainy'
+    require_admin: false
+```
+
+## 5. Maintenance et mise à jour
+
+### 5.1. Mettre à jour l'application
+
+Pour déployer une nouvelle version de l'application :
+
+```bash
+cd /share/Container/rain-dashboard
+git pull  # Si vous utilisez git
+docker-compose down
+docker-compose up -d --build
+```
+
+### 5.2. Vérifier les logs
+
+```bash
+# Logs de l'application
+docker logs rain-dashboard
+
+# Logs de la synchronisation
+cat /share/Container/rain-dashboard/logs/update-csv.log
+```
+
+### 5.3. Sauvegarde
+
+Il est recommandé de sauvegarder régulièrement le dossier `/share/Container/rain-dashboard/` pour conserver votre configuration et vos données.
+
+## Dépannage
+
+### Le conteneur ne démarre pas
+
+Vérifiez les logs :
+```bash
+docker-compose logs
+```
+
+### Les données ne sont pas mises à jour
+
+1. Vérifiez que le script de mise à jour s'exécute correctement :
+```bash
+/share/Container/rain-dashboard/update-csv.sh
+```
+
+2. Vérifiez les chemins des fichiers dans le script.
+
+3. Assurez-vous que le fichier CSV est bien placé dans Home Assistant.
+
+### Problèmes d'affichage dans Home Assistant
+
+1. Vérifiez que le conteneur est en cours d'exécution :
+```bash
+docker ps | grep rain-dashboard
+```
+
+2. Assurez-vous que le port 8080 est accessible depuis Home Assistant.
+
+3. Essayez d'accéder directement à l'URL http://192.168.1.xxx:8080 depuis un navigateur.
+
+## Conclusion
+
+Vous disposez maintenant d'une solution complète et conteneurisée pour visualiser vos données de précipitations. L'utilisation de Docker facilite grandement le déploiement et la maintenance, tout en isolant l'application de votre système.
+
+Cette approche vous permet de :
+- Facilement mettre à jour l'application
+- Surveiller les logs
+- Sauvegarder et restaurer la configuration
+- Éviter les conflits avec d'autres applications
+
+Si vous souhaitez une intégration encore plus poussée avec Home Assistant, envisagez d'utiliser les WebSockets ou l'API REST de Home Assistant pour récupérer les données directement depuis votre instance, plutôt que de synchroniser les fichiers CSV.

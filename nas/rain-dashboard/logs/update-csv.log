@@ -1,0 +1,4 @@
+2025-03-16 15:01:00 - ERREUR: Le fichier source /config/www/pluviomètre gui_15_03_2025.csv n'existe pas.
+2025-03-16 15:04:00 - Début de la copie de /share/Container/rain-dashboard/data/pluviometre.csv vers /share/Container/rain-dashboard/data/rainfall.csv
+2025-03-16 15:04:00 - Copie réussie.
+2025-03-16 15:04:00 - Processus terminé avec succès.

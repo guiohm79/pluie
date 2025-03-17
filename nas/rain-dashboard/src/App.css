@@ -1,0 +1,40 @@
+/* Ajoute ce CSS à ton App.css */
+
+.App {
+  text-align: center;
+  min-height: 100vh;
+  background-color: #282c34;
+  color: white;
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+  height: auto;
+  min-height: 120px;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-height: 600px; /* Limite la hauteur du main */
+}
+
+/* Ajout pour fixer la taille du container du graphique */
+.graph-container {
+  height: 500px !important;
+  min-height: 500px !important;
+  max-height: 500px !important;
+  width: 100% !important;
+  display: block !important;
+  overflow: hidden !important;
+}

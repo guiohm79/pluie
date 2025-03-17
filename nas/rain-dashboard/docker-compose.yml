@@ -1,0 +1,23 @@
+version: '3'
+
+services:
+  rain-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rain-dashboard:latest
+    container_name: rain-dashboard
+    restart: unless-stopped
+    ports:
+      - "8085:80"  # HTTP
+      - "8443:443" # HTTPS
+    volumes:
+      - ./data:/usr/share/nginx/html/data  # Pour les données CSV
+    environment:
+      - TZ=Europe/Paris  # Fuseau horaire, à ajuster
+    networks:
+      - rain-network
+
+networks:
+  rain-network:
+    driver: bridge
